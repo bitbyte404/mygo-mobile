@@ -19,6 +19,8 @@ class SavedAlbumsView extends StatelessWidget {
       pluginId: pluginId,
       skeleton: SkeletonKind.cards,
       load: () => svc.music.savedAlbums(pluginId),
+      cacheKey: '$pluginId/savedAlbums',
+      fresh: Duration.zero,
       builder: (context, albums, _) => ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: pageInsets(context),

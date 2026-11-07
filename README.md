@@ -32,6 +32,8 @@ iOS can follow.
   Update checks read the repo's `plugin.json` from raw.githubusercontent.com (no GitHub API rate limit).
   Deep link `mygo-music://install-plugin?repo=owner/repo` (as the desktop app answers) opens the installer.
 - **Browse** — the plugin's home (under a greeting), pages, albums, artists, playlists, "see all" pages, stations.
+  Pages are kept for the session: going back to a tab or a page shows it at once and refreshes it
+  quietly when it is stale, keeping its scroll position (see docs/DESIGN.md, Loading).
 - **Search** — songs / albums / artists / playlists with paging and suggestions.
 - **我的** — account and QR sign-in, liked songs (Play all plays every liked song, loading the
   remaining pages first), recently played (the source's list and this device's, one entry),

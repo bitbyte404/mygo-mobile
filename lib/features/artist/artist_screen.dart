@@ -26,6 +26,7 @@ class ArtistScreen extends StatelessWidget {
         pluginId: pluginId,
         skeleton: SkeletonKind.artist,
         load: () => svc.music.artist(pluginId, artist.id),
+        cacheKey: '$pluginId/artist/${artist.id}',
         builder: (context, a, _) {
           final ar = a.artist.name.isEmpty ? artist : a.artist;
           return TrackListView(

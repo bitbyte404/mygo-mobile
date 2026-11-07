@@ -44,8 +44,18 @@ class MusicRepository {
     return r is Map ? Account.fromJson(r) : null;
   }
 
-  Future<void> signIn(String pid) => _call(pid, 'signIn');
-  Future<void> signOut(String pid) => _call(pid, 'signOut');
+  Future<void> signIn(String pid) async {
+    await _call(pid, 'signIn');
+    onAccountChanged?.call(pid);
+  }
+
+  Future<void> signOut(String pid) async {
+    await _call(pid, 'signOut');
+    onAccountChanged?.call(pid);
+  }
+
+  /// Told when a plugin's account changes, so pages kept for it are dropped.
+  void Function(String pid)? onAccountChanged;
   Future<TrackPage> liked(String pid, {int offset = 0}) async => TrackPage.fromJson(_map(await _call(pid, 'liked', {'offset': offset})), pid);
   Future<Map<String, bool>> isLiked(String pid, List<String> ids) async =>
       _map(await _call(pid, 'isLiked', {'ids': ids})).map((k, v) => MapEntry('$k', v == true));

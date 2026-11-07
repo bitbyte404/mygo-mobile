@@ -8,6 +8,7 @@
 // bars draw under the status and navigation bars; the content learns the
 // room they take (system insets plus the app's own bars) from MediaQuery
 // padding, so nothing it shows is hidden under them.
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mygo_mobile/app/services.dart';
@@ -27,6 +28,7 @@ import 'package:mygo_mobile/features/settings/settings_page.dart';
 import 'package:mygo_mobile/ui/ui.dart';
 
 import 'destinations.dart';
+import 'package:mygo_mobile/features/common/loader.dart';
 import 'navigation.dart';
 
 class AppShell extends StatefulWidget {
@@ -44,7 +46,11 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     closeNowPlaying = nowPlaying.close;
+    svc.music.onAccountChanged = PageCache.clear;
   }
+
+  /// Scroll positions of the tab pages, kept across switching tabs.
+  final _scroll = PageStorageBucket();
 
   String _homeKey(List<NavEntry> entries) => entries.firstWhere((e) => e.isHome, orElse: () => entries.first).key;
 
@@ -71,11 +77,13 @@ class _AppShellState extends State<AppShell> {
     if (didPop) return;
     if (nowPlaying.isOpen) {
       nowPlaying.close();
-    } else if (_nestedCanPop) {
+    } else if (contentNavKey.currentState?.canPop() ?? _nestedCanPop) {
+      // Asked of the navigator itself: the flag lags a page pushed this frame.
       contentNavKey.currentState?.maybePop();
     } else {
       final entries = svc.navEntries(svc.plugins.active);
-      shellState.go(_homeKey(entries));
+      final home = _homeKey(entries);
+      if (shellState.dest != home) shellState.go(home);
     }
   }
 
@@ -109,7 +117,7 @@ class _AppShellState extends State<AppShell> {
                   controller: _hero,
                   child: Navigator(
                     key: contentNavKey,
-                    pages: [MaterialPage<void>(key: ValueKey('${p?.id}/${shellState.dest}/${shellState.gen}'), child: _root(p, entries, wc))],
+                    pages: [MaterialPage<void>(key: ValueKey('${p?.id}/${shellState.dest}/${shellState.gen}'), child: PageStorage(bucket: _scroll, child: _root(p, entries, wc)))],
                     onDidRemovePage: (_) {},
                   ),
                 ),
@@ -172,7 +180,9 @@ class _AppShellState extends State<AppShell> {
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: mgOverlay(!pal.dark),
           child: PopScope(
-            canPop: !nowPlaying.isOpen && !_nestedCanPop && atHome,
+            // A web app never pops itself: leaving it in the browser's history
+            // reloads it from the launch screen.
+            canPop: !kIsWeb && !nowPlaying.isOpen && !_nestedCanPop && atHome,
             onPopInvokedWithResult: _onPop,
             // A Material, for what Flutter's text fields need above them;
             // it draws nothing but the page color (no ink: NoSplash).

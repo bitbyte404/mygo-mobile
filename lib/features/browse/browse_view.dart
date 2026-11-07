@@ -26,6 +26,7 @@ class BrowseView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Loader<Browse>(
       key: ValueKey('$pluginId/$page'),
+      cacheKey: '$pluginId/browse/$page',
       pluginId: pluginId,
       skeleton: SkeletonKind.browse,
       load: _load,
@@ -78,6 +79,7 @@ class BrowseBody extends StatelessWidget {
       children.add(Padding(padding: const EdgeInsets.all(32), child: Center(child: Text(svc.s['nothing'], style: TextStyle(color: context.mg.muted)))));
     }
     return ListView(
+      key: PageStorageKey<String>('$pluginId/browse/${b.title}/${header != null}'),
       physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.fromLTRB(0, pad.top + MgSize.pageGap, 0, pad.bottom + 32),
       children: children,

@@ -96,6 +96,15 @@ parameters are unknown; a 240 ms / 0.15-bounce spring stands in for it.
   view (sign in / settings / retry).
 - A spinner is kept only for an action in place: a button that is working, the mini player
   buffering, a dialog.
+- **Pages are kept** (`PageCache` in `lib/features/common/loader.dart`, memory only, the 60 most
+  recent, for the session): a page opened again (a tab, back to an album) shows what it showed
+  last at once, with no skeleton. Once that is older than the page's `fresh` it reloads quietly
+  behind it and swaps in when the new data arrives; a failed quiet reload keeps the page. Home,
+  browse pages, stations, albums and artists are fresh for 10 minutes; playlists, the playlist
+  list and saved albums are always rechecked behind what is shown, since they change from other
+  devices; liked and recently played are not kept. Pull-to-refresh always reloads and keeps the
+  page under its indicator (a failure is a toast). Signing in or out drops that plugin's kept
+  pages. The tab pages' scroll positions are kept too.
 
 ## Mobile adaptations
 

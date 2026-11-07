@@ -127,6 +127,11 @@ Install a plugin by opening `https://music.example.com/?install=owner/repo`, or 
   cache, and the old cache is deleted when it takes over. An unstamped `sw.js` would never update.
 - **Updates**: a new worker waits; the page shows "有新版本 · 刷新" and only swaps when it is tapped,
   so code never changes under a running app. The first install offers nothing.
+- **Back on iPhone**: on iOS the app keeps out of the browser's history (`setUrlStrategy(null)`).
+  Flutter's single history entry behind the app made Safari's edge swipe show the launch screen's
+  snapshot (or reload the app) instead of the previous page; with no entry the swipe is the app's
+  own Cupertino back gesture. Android browsers keep history, so their back button still steps
+  back, and a web app never pops its last page (that would leave the document and reload it).
 - **`POST /api/log`** (behind the token): the app reports failures it can't show anywhere useful
   (an install that timed out or failed, with the step it was on) as `{"kind","message","context"}`;
   the relay writes one sanitized line to its log (`docker logs mygo-web`) with the User-Agent, and

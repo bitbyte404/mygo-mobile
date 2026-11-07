@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-const version = "0.2.1"
+const version = "0.2.2"
 
 type Config struct {
 	Token          string   // RELAY_TOKEN: required on every API request when set

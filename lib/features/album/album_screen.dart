@@ -23,6 +23,7 @@ class AlbumScreen extends StatelessWidget {
         pluginId: pluginId,
         skeleton: SkeletonKind.collection,
         load: () => svc.music.album(pluginId, album.id),
+        cacheKey: '$pluginId/album/${album.id}',
         builder: (context, a, _) {
           final al = a.album.name.isEmpty ? album : a.album;
           final meta = [al.artistNames, al.released, if (a.tracks.isNotEmpty) '${a.tracks.length} ${s['songs']}'].where((x) => x.isNotEmpty).join(' · ');

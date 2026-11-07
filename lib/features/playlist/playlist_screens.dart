@@ -24,6 +24,8 @@ class PlaylistScreen extends StatelessWidget {
         pluginId: pluginId,
         skeleton: SkeletonKind.collection,
         load: () => svc.music.playlist(pluginId, playlist.id),
+        cacheKey: '$pluginId/playlist/${playlist.id}',
+        fresh: Duration.zero,
         builder: (context, p, _) => TrackListView(
           tracks: p.tracks,
           header: PageHeader(
@@ -72,6 +74,8 @@ class PlaylistsScreen extends StatelessWidget {
         pluginId: pluginId,
         skeleton: SkeletonKind.cards,
         load: () => svc.music.playlists(pluginId),
+        cacheKey: '$pluginId/playlists',
+        fresh: Duration.zero,
         builder: (context, lists, _) {
           final mine = lists.where((p) => p.mine).toList();
           final saved = lists.where((p) => !p.mine).toList();

@@ -55,6 +55,7 @@ class HomeView extends StatelessWidget {
       key: ValueKey('$pluginId/home'),
       pluginId: pluginId,
       skeleton: SkeletonKind.browse,
+      cacheKey: '$pluginId/home',
       skeletonHeader: header,
       load: _load,
       builder: (context, h, _) {

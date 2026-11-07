@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_web_plugins/url_strategy.dart' show setUrlStrategy;
 
 import 'app/app.dart';
 import 'app/bootstrap.dart';
@@ -14,6 +15,14 @@ import 'features/relay/relay_gate.dart';
 import 'ui/theme/mg_theme.dart';
 
 Future<void> main() async {
+  // On an iPhone or iPad, the app keeps out of the browser's history. Safari's
+  // edge swipe goes back through history, and Flutter keeps one entry behind
+  // the app whose snapshot is the launch screen: swiping showed it (and could
+  // leave it there, or reload the app) instead of the previous page. With no
+  // history entry the system swipe has nothing to go back to, and the swipe
+  // is the app's own (CupertinoPageTransitionsBuilder), page by page.
+  // Android browsers keep history, so their back button still steps back.
+  if (kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) setUrlStrategy(null);
   WidgetsFlutterBinding.ensureInitialized();
   // Edge to edge: the app draws under the status and navigation bars, which
   // stay transparent with no contrast scrim (see also MainActivity and

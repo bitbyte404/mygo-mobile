@@ -30,6 +30,7 @@ class StationsView extends StatelessWidget {
       pluginId: pluginId,
       skeleton: SkeletonKind.cards,
       load: () => svc.music.stations(pluginId),
+      cacheKey: '$pluginId/stations',
       builder: (context, stations, _) => ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: pageInsets(context),
