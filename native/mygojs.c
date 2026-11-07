@@ -33,7 +33,20 @@ typedef struct {
   int64_t deadline_ms; // 0 = none
   JSValue ns;          // module namespace
   int has_ns;
+  int depth;           // nested mg_* entries on this engine (a host callback re-entering)
 } mg_engine;
+
+// QuickJS checks for stack overflow against the stack pointer it saw when the
+// runtime was made (JS_NewRuntime) or last told (JS_UpdateStackTop). A Dart
+// isolate is not bound to one OS thread: between calls it can resume on another
+// thread of the pool, whose stack lies elsewhere, so the saved top is
+// meaningless there and an ordinary call may fail with "Maximum call stack size
+// exceeded" (or the check may not fire at all). So every entry point re-reads
+// the stack top on the thread it runs on. Only the outermost entry does: a host
+// callback (__mg_send) re-entering on the same thread must keep the outer top,
+// or the limit would move down the stack with each nesting.
+#define MG_ENTER(e) do { if ((e)->depth++ == 0) JS_UpdateStackTop((e)->rt); } while (0)
+#define MG_LEAVE(e) do { (e)->depth--; } while (0)
 
 static int64_t now_ms(void) {
   struct timespec ts;
@@ -105,9 +118,11 @@ MG_EXPORT void *mg_new(int64_t id, mg_send_cb send, int64_t memory_limit) {
   mg_engine *e = (mg_engine *)calloc(1, sizeof(mg_engine));
   e->id = id;
   e->send = send;
-  e->rt = JS_NewRuntime();
+  e->rt = JS_NewRuntime(); // takes this thread's stack top
   if (memory_limit > 0) JS_SetMemoryLimit(e->rt, (size_t)memory_limit);
-  JS_SetMaxStackSize(e->rt, 4 * 1024 * 1024);
+  // 1 MiB, QuickJS's own default: within any thread stack the Dart VM gives an
+  // isolate's pool threads, so an overflow throws in JS rather than faulting.
+  JS_SetMaxStackSize(e->rt, 1024 * 1024);
   JS_SetInterruptHandler(e->rt, interrupt_handler, e);
   e->ctx = JS_NewContext(e->rt);
   JS_SetContextOpaque(e->ctx, e);
@@ -120,6 +135,7 @@ MG_EXPORT void *mg_new(int64_t id, mg_send_cb send, int64_t memory_limit) {
 MG_EXPORT void mg_free(void *p) {
   mg_engine *e = (mg_engine *)p;
   if (!e) return;
+  JS_UpdateStackTop(e->rt);
   if (e->has_ns) JS_FreeValue(e->ctx, e->ns);
   JS_FreeContext(e->ctx);
   JS_FreeRuntime(e->rt);
@@ -135,7 +151,7 @@ MG_EXPORT void mg_set_deadline(void *p, int64_t ms_from_now) {
 
 // Runs every pending job. Returns NULL, or a malloc'd error of the last job
 // that threw (a job's own unhandled error doesn't stop the others).
-MG_EXPORT char *mg_run_jobs(void *p) {
+static char *mg_run_jobs_impl(void *p) {
   mg_engine *e = (mg_engine *)p;
   char *err = NULL;
   for (;;) {
@@ -151,17 +167,17 @@ MG_EXPORT char *mg_run_jobs(void *p) {
 }
 
 // Evaluates a classic script. Returns NULL or a malloc'd error.
-MG_EXPORT char *mg_eval_script(void *p, const char *name, const char *src) {
+static char *mg_eval_script_impl(void *p, const char *name, const char *src) {
   mg_engine *e = (mg_engine *)p;
   JSValue v = JS_Eval(e->ctx, src, strlen(src), name, JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(v)) return take_exception(e->ctx);
   JS_FreeValue(e->ctx, v);
-  return mg_run_jobs(p);
+  return mg_run_jobs_impl(p);
 }
 
 // Evaluates the plugin's ES module and keeps its namespace as the global
 // __mg_exports. Returns NULL or a malloc'd error.
-MG_EXPORT char *mg_eval_module(void *p, const char *name, const char *src) {
+static char *mg_eval_module_impl(void *p, const char *name, const char *src) {
   mg_engine *e = (mg_engine *)p;
   JSContext *ctx = e->ctx;
   JSValue fn = JS_Eval(ctx, src, strlen(src), name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -169,7 +185,7 @@ MG_EXPORT char *mg_eval_module(void *p, const char *name, const char *src) {
   JSModuleDef *m = (JSModuleDef *)JS_VALUE_GET_PTR(fn);
   JSValue res = JS_EvalFunction(ctx, fn); // frees fn
   if (JS_IsException(res)) return take_exception(ctx);
-  char *err = mg_run_jobs(p);
+  char *err = mg_run_jobs_impl(p);
   // A module's evaluation answers a promise (top-level await); a rejected one is an error.
   if (JS_IsObject(res) && JS_PromiseState(ctx, res) == JS_PROMISE_REJECTED) {
     JSValue reason = JS_PromiseResult(ctx, res);
@@ -189,7 +205,7 @@ MG_EXPORT char *mg_eval_module(void *p, const char *name, const char *src) {
 
 // Calls the global function `fn` with (json-string, ArrayBuffer|undefined),
 // then runs pending jobs. Returns NULL, or a malloc'd error.
-MG_EXPORT char *mg_call_global(void *p, const char *fn, const char *json, const uint8_t *bytes,
+static char *mg_call_global_impl(void *p, const char *fn, const char *json, const uint8_t *bytes,
                                int64_t nbytes) {
   mg_engine *e = (mg_engine *)p;
   JSContext *ctx = e->ctx;
@@ -214,7 +230,7 @@ MG_EXPORT char *mg_call_global(void *p, const char *fn, const char *json, const 
     err = take_exception(ctx);
   else
     JS_FreeValue(ctx, r);
-  char *jerr = mg_run_jobs(p);
+  char *jerr = mg_run_jobs_impl(p);
   if (err) {
     free(jerr);
     return err;
@@ -223,7 +239,7 @@ MG_EXPORT char *mg_call_global(void *p, const char *fn, const char *json, const 
 }
 
 // The names the module exports, as a malloc'd JSON array.
-MG_EXPORT char *mg_export_names(void *p) {
+static char *mg_export_names_impl(void *p) {
   mg_engine *e = (mg_engine *)p;
   const char *src = "JSON.stringify(Object.keys(globalThis.__mg_exports || {}))";
   JSValue v = JS_Eval(e->ctx, src, strlen(src), "<names>", JS_EVAL_TYPE_GLOBAL);
@@ -235,9 +251,58 @@ MG_EXPORT char *mg_export_names(void *p) {
   return out;
 }
 
-MG_EXPORT int64_t mg_memory_used(void *p) {
+static int64_t mg_memory_used_impl(void *p) {
   mg_engine *e = (mg_engine *)p;
   JSMemoryUsage u;
   JS_ComputeMemoryUsage(e->rt, &u);
   return u.memory_used_size;
+}
+
+MG_EXPORT char *mg_run_jobs(void *p) {
+  mg_engine *e = (mg_engine *)p;
+  MG_ENTER(e);
+  char *r = mg_run_jobs_impl(p);
+  MG_LEAVE(e);
+  return r;
+}
+
+MG_EXPORT char *mg_eval_script(void *p, const char *name, const char *src) {
+  mg_engine *e = (mg_engine *)p;
+  MG_ENTER(e);
+  char *r = mg_eval_script_impl(p, name, src);
+  MG_LEAVE(e);
+  return r;
+}
+
+MG_EXPORT char *mg_eval_module(void *p, const char *name, const char *src) {
+  mg_engine *e = (mg_engine *)p;
+  MG_ENTER(e);
+  char *r = mg_eval_module_impl(p, name, src);
+  MG_LEAVE(e);
+  return r;
+}
+
+MG_EXPORT char *mg_call_global(void *p, const char *fn, const char *json, const uint8_t *bytes,
+                               int64_t nbytes) {
+  mg_engine *e = (mg_engine *)p;
+  MG_ENTER(e);
+  char *r = mg_call_global_impl(p, fn, json, bytes, nbytes);
+  MG_LEAVE(e);
+  return r;
+}
+
+MG_EXPORT char *mg_export_names(void *p) {
+  mg_engine *e = (mg_engine *)p;
+  MG_ENTER(e);
+  char *r = mg_export_names_impl(p);
+  MG_LEAVE(e);
+  return r;
+}
+
+MG_EXPORT int64_t mg_memory_used(void *p) {
+  mg_engine *e = (mg_engine *)p;
+  MG_ENTER(e);
+  int64_t r = mg_memory_used_impl(p);
+  MG_LEAVE(e);
+  return r;
 }

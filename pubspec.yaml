@@ -1,7 +1,7 @@
 name: mygo_mobile
 description: "MyGo 音乐 — a mobile player that runs MyGo Music plugins (plugin.json + index.js) unchanged."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ^3.13.0
@@ -9,6 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  path_parsing: ^1.1.0
   ffi: ^2.2.0
   crypto: ^3.0.8
   pointycastle: ^4.0.0
@@ -26,6 +29,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  fake_async: any
 
 flutter:
   uses-material-design: true

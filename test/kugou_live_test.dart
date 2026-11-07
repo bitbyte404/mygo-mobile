@@ -13,7 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mygo_mobile/runtime/plugin_host.dart';
+import 'package:mygo_mobile/core/runtime/quickjs/plugin_host.dart';
 
 const pluginDir = String.fromEnvironment('KUGOU_DIR', defaultValue: '/workspace/work/mygo-music-kugou-lite');
 

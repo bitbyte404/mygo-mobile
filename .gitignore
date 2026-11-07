@@ -54,3 +54,6 @@ app.*.map.json
 /android/key.properties
 # Native host build
 /native/build/
+
+# Screenshot PNGs are build output; the contact sheets are committed.
+/screenshots/*.png

@@ -7,6 +7,8 @@
 # the hybrid r28c NDK under $ANDROID_HOME/ndk (see README).
 set -euo pipefail
 cd "$(dirname "$0")"
+# The system LLVM may not put a bare `clang` on PATH (Debian: clang-19).
+command -v clang >/dev/null || export PATH=/usr/lib/llvm-19/bin:$PATH
 SRC="mygojs.c quickjs-amalgam.c"
 CFLAGS="-O2 -fPIC -fvisibility=hidden -D_GNU_SOURCE -w -std=gnu11"
 what=${1:-all}

@@ -1,5 +1,7 @@
 # MyGo 音乐 (mygo_mobile)
 
+![phone](screenshots/phone.jpg)
+
 A mobile (Flutter) music player that runs **MyGo Music plugins unchanged** — the same
 `plugin.json` + `index.js` packages the desktop app [egoist/mygo-music](https://github.com/egoist/mygo-music)
 loads. The app has no music service of its own: every catalogue, sign-in, stream and lyric
@@ -10,6 +12,17 @@ iOS can follow.
 
 ## Features
 
+- **Looks and moves like MyGo Music**, adapted to touch: MyGo's palette (light and dark, following
+  the system), type scale, icons, covers, track rows, pills, the player bar, Now Playing growing out
+  of the player on a spring with the artwork's colors behind it, and synced lyrics that glide to the
+  line sung. No stock Material chrome. See [docs/DESIGN.md](docs/DESIGN.md).
+- **Adaptive layout** by width class: phones get a tab bar (首页 / 搜索 / 我的) and a mini player that
+  expands into Now Playing (tap, or drag it up; drag Now Playing down to close); tablets, foldables
+  and landscape (≥ 840 dp) get the desktop layout with the plugin's navigation in a sidebar, card
+  grids, the player bar, and Now Playing with cover and lyrics side by side; 600–840 dp an icon rail.
+- **Edge to edge**: content and artwork draw under transparent status and navigation bars (no
+  contrast scrim, display cutouts on the short edges); bar icons follow the theme and Now Playing's
+  artwork; the tab bar and mini player sit above the gesture bar or the 3-button bar.
 - **Plugin runtime** — each plugin runs in its own QuickJS-ng engine (`libmygojs.so`) on its own
   background isolate, with the desktop host API re-implemented in Dart: storage, settings,
   locales (`host.t`), md5 / AES / RSA, `fetch` limited to the plugin's declared network
@@ -18,35 +31,38 @@ iOS can follow.
   root or one folder deep) or from a local zip, with a permission review before install.
   Update checks read the repo's `plugin.json` from raw.githubusercontent.com (no GitHub API rate limit).
   Deep link `mygo-music://install-plugin?repo=owner/repo` (as the desktop app answers) opens the installer.
-- **Browse** — the plugin's home, pages, albums, artists, playlists, "see more" pages.
-- **Search** — tracks / albums / artists / playlists with paging.
-- **Me** — account, liked tracks, recent plays, the plugin's own pages.
-- **Now playing** — queue, quality choice (standard … lossless/Hi-Res where the plugin offers it),
-  synced lyrics (line and word timing), comments when the plugin exports them.
+- **Browse** — the plugin's home (under a greeting), pages, albums, artists, playlists, "see all" pages, stations.
+- **Search** — songs / albums / artists / playlists with paging and suggestions.
+- **我的** — account and QR sign-in, liked songs (Play all plays every liked song, loading the
+  remaining pages first), recently played (the source's list and this device's, one entry),
+  playlists, saved albums, the plugin's own pages, plugins, settings.
+- **Now playing** — queue, quality choice (standard … lossless/Hi-Res where the plugin offers it,
+  with a 无损 badge), synced lyrics (line and word timing, tap a line to seek), comments when the
+  plugin exports them.
 - **Playback** — just_audio + audio_service: background play, notification and lock-screen
   controls, media buttons. Stream URLs are requested from the plugin when each track starts
   (they expire), with the headers the plugin returns.
-- UI in Simplified Chinese and English.
+- UI in Simplified Chinese and English (with Flutter's own localizations for both).
 
 ## Architecture
 
+Layered `core` → `data` → `features`, with the design system in `ui` and the composition root in
+`app`; plugins run behind a `PluginRuntime` platform interface (QuickJS-ng over FFI today, a web
+runtime can slot in). Details, the runtime/isolate model, a diagram, and how plugins map to
+features: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ```
 lib/
-  main.dart, services.dart, app_state.dart, i18n.dart, models.dart
-  runtime/
-    js_engine.dart      dart:ffi bindings to libmygojs (QuickJS-ng + native/mygojs.c)
-    plugin_host.dart    one plugin: module + host API (storage, fetch, crypto, timers, sign-in)
-    plugin_worker.dart  runs a PluginHost on a background isolate; UI talks to it by messages
-    manifest.dart       plugin.json, as the desktop app reads it
-  plugins/
-    installer.dart      GitHub / zip install, permission review, update checks
-    plugin_manager.dart installed plugins, one isolate each, which one is active
-  player/player.dart    just_audio + audio_service, queue, per-track stream lookup
-  ui/                   home shell, browse, search, me, detail pages, now playing, plugins, settings
+  main.dart · app/ (bootstrap, services, app)
+  core/      models, errors, plugin manifest, runtime interface + quickjs/ (JsEngine, PluginHost, PluginWorker)
+  data/      plugins (manager, installer), library (MusicRepository, LikedStore), player, settings, navigation
+  ui/        design system: theme (tokens, icons), components, layout
+  features/  shell, home, browse, search, album, artist, playlist, liked, recent, stations, library,
+             now_playing, lyrics, account, plugins, settings, common
+  l10n/      the app's strings (zh-CN, en)
 assets/js/prelude.js    JS side of the host API given to every plugin
 native/                 QuickJS-ng amalgamation + mygojs.c bridge; build.sh
 android/app/src/main/jniLibs/<abi>/libmygojs.so   prebuilt by native/build.sh android
-test/kugou_live_test.dart   headless live test of the kugou-lite plugin through this runtime
 ```
 
 Plugin answers use the desktop app's JSON shapes (`internal/music/music.go`); times are milliseconds.
@@ -101,6 +117,9 @@ as a host. Workarounds, all under `/workspace/work/tools` (`source tools/env.sh`
 - **NDK stand-in 28.2.13676358**: r28c sysroot/headers with toolchain binaries symlinked to the system
   LLVM 19, so AGP accepts an installed NDK. No NDK compile happens in the Gradle build;
   `libmygojs.so` is built by `native/build.sh` with system clang against the NDK sysroot.
+- **System LLVM 19** (`clang-19`, `lld-19`, `llvm-19` from Debian) for `native/build.sh`; the NDK stand-in's
+  toolchain links point at `/usr/lib/llvm-19/bin`. They live outside the workspace, so a fresh sandbox needs
+  them reinstalled (`apt-get install clang-19 lld-19 llvm-19` through the proxy).
 - **path_provider_android pinned to 2.2.23** (`dependency_overrides`): 2.3.x pulls in `package:jni`,
   which compiles C with the NDK toolchain at build time.
 
@@ -109,8 +128,10 @@ On a normal x86_64 host none of this is needed except the pin (harmless) and sig
 ## Tests
 
 ```bash
+flutter test test/unit                      # no network: controllers, navigation, lyrics, design tokens
 native/build.sh host
 MYGOJS_LIB=native/build/host/libmygojs.so flutter test test/kugou_live_test.dart
+MYGOJS_LIB=native/build/host/libmygojs.so flutter test test/stack_stress_test.dart   # 4 plugin isolates, 480 calls
 ```
 
 Behind a proxy, give the plugin traffic an unauthenticated proxy with `MYGO_HTTP_PROXY=host:port`
@@ -126,10 +147,20 @@ Results go to `build/kugou_live_results.json`.
 
 ### Screenshots (no device)
 
-`test/screenshots_test.dart` renders the real app (`MyGoApp`, dark theme, zh-CN) at phone size
-(360x780 dp @3x = 1080x2340 px) with live data from the signed-in kugou-lite plugin running in the
-app's own runtime, and walks it like a user: home, drawer, a playlist, search 周杰伦 晴天, track menu,
-album, 我喜欢, now playing (晴天), lyrics, plugins, 我的. PNGs go to `screenshots/`.
+`test/screenshots_test.dart` renders the real app (`MyGoApp`, zh-CN) with live data from the
+signed-in kugou-lite plugin running in the app's own runtime, and walks it like a user:
+
+- phone, 1080x2340 px (360x780 dp @3), dark and light: home, search 周杰伦 晴天, an album (from a
+  result's song menu), 我喜欢, the mini player, Now Playing, lyrics (position pinned inside the song so
+  a line is lit), plugins (after a real update check);
+- tablet landscape, 2560x1600 px (1280x800 dp @2): home with the sidebar, an album, Now Playing with lyrics.
+
+The status bar (24 dp) and gesture bar (16 / 20 dp) are simulated: the view gets them as
+padding, as an edge-to-edge window does, and the test paints a fake status bar and gesture pill
+over the frame in the icon brightness the app last asked for (`SystemChrome.latestStyle`); what
+shows under them is the app's own content. PNGs go to `screenshots/` (contact sheets
+`screenshots/phone.jpg`, `screenshots/tablet.jpg`), a report with the overlay style per shot to
+`build/screenshot_report.json`.
 
 ```bash
 MYGOJS_LIB=native/build/host/libmygojs.so MYGO_HTTP_PROXY=127.0.0.1:3128 NO_PROXY=localhost,127.0.0.1 \
@@ -139,19 +170,22 @@ MYGOJS_LIB=native/build/host/libmygojs.so MYGO_HTTP_PROXY=127.0.0.1:3128 NO_PROX
 Fonts come from `--dart-define=CJK_FONT_DIR=...` (default `/workspace/work/tools/fonts`): Noto Sans SC
 Regular/Medium/Bold, preferring `emoji-merged/` copies with monochrome Noto Emoji glyphs added by
 `tools/fonts/add_emoji.py` (the test engine has no per-glyph font fallback, so emoji would be tofu).
-Material Icons come from the Flutter SDK. Cover art is fetched once with curl into `build/img-cache/`.
-Nothing plays: the "now playing" state is set on the player's notifiers, so position is 0:00.
+Cover art is fetched once with curl into `build/img-cache/`. Nothing plays: the "now playing" state
+is set on the player's notifiers and its clock pinned with `Player.debugSetClock`.
 
 ## Known gaps / not yet verified
 
-Verified headlessly only (plugin runtime + kugou-lite live calls, release build and signing).
-Not yet verified on a real device:
+Verified headlessly only (plugin runtime + kugou-lite live calls, UI at phone/tablet sizes,
+release build and signing). Not yet verified on a real device:
 
 - actual audio playback (including FLAC / Hi-Res decoding by ExoPlayer),
 - background play, notification and lock-screen controls,
 - QR-code sign-in flow in the UI,
 - installing a plugin from a zip via the file picker,
 - the `mygo-music://install-plugin` deep link,
+- touch feel: the mini player drag, pull-to-close, lyrics scrolling and frame rate on real hardware,
+- edge-to-edge on a device (status/navigation bar colors, 3-button navigation, cutouts) and the
+  Android back gesture,
 - iOS: not built at all (needs a Mac; `libmygojs` would be linked statically / as an xcframework).
 
 Other gaps: no downloads / offline cache; no desktop-only plugin exports (e.g. `remoteState`

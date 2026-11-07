@@ -1,17 +1,26 @@
-// Screenshots of the real app UI, rendered headlessly at phone size
-// (360x780 dp @3x = 1080x2340 px, dark theme, zh-CN) with live data from the
-// signed-in kugou-lite plugin running in the app's own runtime (PluginManager
-// -> PluginWorker isolate -> QuickJS). No device needed.
+// Screenshots of the real app UI, rendered headlessly with live data from
+// the signed-in kugou-lite plugin running in the app's own runtime
+// (PluginManager -> QuickJsRuntime -> PluginWorker isolate -> QuickJS).
+//
+//   phone   1080x2340 px (360x780 dp @3), dark and light, zh-CN
+//   tablet  2560x1600 px (1280x800 dp @2, landscape), dark
+//
+// The phone's status bar (24 dp) and gesture bar (16 dp), the tablet's (24 /
+// 20 dp), are simulated: the view gets them as padding/viewPadding, as an
+// edge-to-edge Android window does, and the test paints a fake status bar
+// (clock, icons) and gesture pill over the frame, in the icon brightness the
+// app last asked for (SystemChrome.latestStyle). Content under them is the
+// app's own: that is the edge-to-edge check. Results: screenshots/*.png and
+// build/screenshot_report.json (per shot: the overlay style asked for, errors).
 //
 // Run (needs network; behind a proxy give MYGO_HTTP_PROXY=host:port):
 //   MYGOJS_LIB=native/build/host/libmygojs.so MYGO_HTTP_PROXY=127.0.0.1:3128 \
 //   NO_PROXY=localhost,127.0.0.1 flutter test test/screenshots_test.dart
-// Fonts: --dart-define=CJK_FONT_DIR=<dir with NotoSansSC-{Regular,Medium,Bold}.otf>
-// Output: screenshots/NN-name.png
 @Tags(['live', 'screenshots'])
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -20,14 +29,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mygo_mobile/app_state.dart';
-import 'package:mygo_mobile/main.dart';
-import 'package:mygo_mobile/models.dart';
-import 'package:mygo_mobile/player/player.dart';
-import 'package:mygo_mobile/plugins/plugin_manager.dart';
-import 'package:mygo_mobile/services.dart';
-import 'package:mygo_mobile/ui/common.dart';
-import 'package:mygo_mobile/ui/now_playing.dart';
+import 'package:mygo_mobile/app/app.dart';
+import 'package:mygo_mobile/app/services.dart';
+import 'package:mygo_mobile/core/models/models.dart';
+import 'package:mygo_mobile/core/runtime/quickjs/quickjs_runtime.dart';
+import 'package:mygo_mobile/data/player/player.dart';
+import 'package:mygo_mobile/data/plugins/plugin_manager.dart';
+import 'package:mygo_mobile/data/settings/app_state.dart';
+import 'package:mygo_mobile/features/album/album_screen.dart';
+import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/tracks.dart';
+import 'package:mygo_mobile/features/now_playing/mini_player.dart';
+import 'package:mygo_mobile/features/now_playing/now_playing_controller.dart';
+import 'package:mygo_mobile/features/shell/navigation.dart';
+import 'package:mygo_mobile/ui/ui.dart';
 
 const pluginSrc = String.fromEnvironment('KUGOU_DIR', defaultValue: '/workspace/work/mygo-music-kugou-lite');
 const fontDir = String.fromEnvironment('CJK_FONT_DIR', defaultValue: '/workspace/work/tools/fonts');
@@ -128,8 +143,10 @@ class _CachedResponse extends Stream<List<int>> implements HttpClientResponse {
 Future<void> _loadFonts() async {
   final flutterRoot = Platform.environment['FLUTTER_ROOT'] ?? '/workspace/work/tools/flutter';
   final icons = File('$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf');
-  final l = FontLoader('MaterialIcons')..addFont(Future.value(ByteData.sublistView(icons.readAsBytesSync())));
-  await l.load();
+  if (icons.existsSync()) {
+    final l = FontLoader('MaterialIcons')..addFont(Future.value(ByteData.sublistView(icons.readAsBytesSync())));
+    await l.load();
+  }
   // The Android theme asks for Roboto; Noto Sans SC covers Latin + CJK (+kana).
   for (final family in ['Roboto']) {
     final f = FontLoader(family);
@@ -144,26 +161,82 @@ Future<void> _loadFonts() async {
   }
 }
 
+
+/// The fake system bars painted over a frame: a status bar with a clock and
+/// icons, and a gesture pill, both transparent, in the brightness the app
+/// asked for.
+class _SystemBars extends StatelessWidget {
+  const _SystemBars({required this.top, required this.bottom});
+  final double top, bottom;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = SystemChrome.latestStyle;
+    final darkIcons = style?.statusBarIconBrightness == Brightness.dark;
+    final c = darkIcons ? const Color(0xFF111111) : const Color(0xFFFFFFFF);
+    final nav = style?.systemNavigationBarIconBrightness == Brightness.dark ? const Color(0xCC111111) : const Color(0xCCFFFFFF);
+    return IgnorePointer(
+      child: Stack(children: [
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: top,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Row(children: [
+              Text('12:00', style: TextStyle(fontFamily: 'Roboto', fontSize: 13, fontWeight: FontWeight.w600, color: c, decoration: TextDecoration.none)),
+              const Spacer(),
+              for (final w in [14.0, 14.0, 22.0]) Container(margin: const EdgeInsets.only(left: 5), width: w, height: 10, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
+            ]),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: bottom,
+          child: Center(child: Container(width: 108, height: 4, decoration: BoxDecoration(color: nav, borderRadius: BorderRadius.circular(2)))),
+        ),
+      ]),
+    );
+  }
+}
+
+class _Frame extends StatelessWidget {
+  const _Frame({required this.boundary, required this.top, required this.bottom});
+  final GlobalKey boundary;
+  final double top, bottom;
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      key: boundary,
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Stack(children: [
+          const Positioned.fill(child: MyGoApp()),
+          Positioned.fill(child: _SystemBars(top: top, bottom: bottom)),
+        ]),
+      ),
+    );
+  }
+}
+
 void main() {
-  final boundary = GlobalKey();
   final errors = <String>[];
   final retries = <String>[];
+  final report = <String, Object?>{};
 
   testWidgets('screenshots', (tester) async {
     final origOnError = FlutterError.onError;
     FlutterError.onError = (d) {
       errors.add(d.exceptionAsString().split('\n').first);
       debugPrint('FLUTTER ERROR: ${d.exceptionAsString()}');
-      if (!d.exceptionAsString().contains('overflowed')) debugPrint('${d.stack}');
+      debugPrint('${d.stack}');
     };
     HttpOverrides.global = _ImageOverrides();
-    // flutter_test draws elevation as a hard black outline unless told not to.
     debugDisableShadows = false;
-    tester.view.physicalSize = const Size(1080, 2340);
-    tester.view.devicePixelRatio = 3;
-    // A phone's status bar and gesture bar.
-    tester.view.padding = const FakeViewPadding(top: 72, bottom: 48);
-    tester.view.viewPadding = const FakeViewPadding(top: 72, bottom: 48);
     addTearDown(tester.view.reset);
     Directory(outDir).createSync(recursive: true);
 
@@ -171,7 +244,6 @@ void main() {
     await tester.runAsync(() async {
       await _loadFonts();
       root = Directory.systemTemp.createTempSync('mygo-shots-');
-      // Installed as the installer leaves it: plugins/<id>/ + .mygo-origin.json.
       final pdir = Directory('${root.path}/plugins/kugou-lite')..createSync(recursive: true);
       for (final f in Directory(pluginSrc).listSync(recursive: true).whereType<File>()) {
         final rel = f.path.substring(pluginSrc.length + 1);
@@ -180,45 +252,41 @@ void main() {
           ..createSync(recursive: true)
           ..writeAsBytesSync(f.readAsBytesSync());
       }
-      File(
-        '${pdir.path}/.mygo-origin.json',
-      ).writeAsStringSync('{"kind":"github","repo":"bitbyte404/mygo-music-kugou-lite","branch":"main","installedAt":${DateTime.now().millisecondsSinceEpoch}}');
-      // The signed-in storage (a copy; the fixture itself is never written).
+      File('${pdir.path}/.mygo-origin.json')
+          .writeAsStringSync('{"kind":"github","repo":"bitbyte404/mygo-music-kugou-lite","branch":"main","installedAt":${DateTime.now().millisecondsSinceEpoch}}');
       Directory('${root.path}/plugin-data/kugou-lite').createSync(recursive: true);
       File('test/fixtures/kugou-data/kugou-lite/storage.json').copySync('${root.path}/plugin-data/kugou-lite/storage.json');
 
       final app = AppState(root.path)..load(deviceLanguage: 'zh-CN');
-      app.themeMode = ThemeMode.dark;
       final plugins = PluginManager(
         root: root.path,
         prelude: File('assets/js/prelude.js').readAsStringSync(),
         language: 'zh-CN',
         platform: 'android',
         arch: 'arm64',
+        runtime: const QuickJsRuntime(),
       );
-      final player = Player();
-      svc = Services(app: app, plugins: plugins, player: player);
+      svc = Services(app: app, plugins: plugins, player: Player())..connectPlayer();
       await plugins.init();
     });
-    expect(svc.plugins.active?.worker, isNotNull, reason: svc.plugins.active?.error);
+    expect(svc.plugins.active?.running, isTrue, reason: svc.plugins.active?.error);
 
-    Future<void> settle() async {
+    Future<void> settle([int secs = 3]) async {
       try {
-        await tester.pumpAndSettle(const Duration(milliseconds: 50), EnginePhase.sendSemanticsUpdate, const Duration(seconds: 3));
-      } catch (_) {} // something still animates (a spinner): fine
+        await tester.pumpAndSettle(const Duration(milliseconds: 50), EnginePhase.sendSemanticsUpdate, Duration(seconds: secs));
+      } catch (_) {} // something keeps animating (a playing indicator): fine
     }
 
     Future<void> waitOnce(int maxSecs) async {
       for (var i = 0; i < maxSecs * 4; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
         await tester.pump(const Duration(milliseconds: 50));
-        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) break;
+        if (find.byType(MgSpinner).evaluate().isEmpty) break;
       }
       await settle();
     }
 
-    // A plugin call that fails shows ErrorView with 重试; press it like a user
-    // would (see the report: intermittent 'Maximum call stack size exceeded').
+    // A plugin call that fails shows ErrorView with 重试; press it as a user would.
     Future<void> wait([int maxSecs = 25]) async {
       await waitOnce(maxSecs);
       for (var i = 0; i < 4 && find.byType(ErrorView).evaluate().isNotEmpty; i++) {
@@ -231,8 +299,6 @@ void main() {
       }
     }
 
-    // Image futures are created in the test's fake zone, so they only move
-    // when real time passes (runAsync) *and* the fake zone is pumped.
     Future<void> loadImages() async {
       for (var round = 0; round < 3; round++) {
         final els = find.byType(Image).evaluate().toList();
@@ -245,184 +311,226 @@ void main() {
           await tester.pump(const Duration(milliseconds: 16));
         }
         if (done < els.length) debugPrint('images: $done/${els.length} loaded');
+        // artwork tints (ArtTint) resolve on their own futures
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
         await tester.pump(const Duration(milliseconds: 50));
       }
       await settle();
     }
 
+    late GlobalKey boundary;
+    late double dpr;
     Future<void> shot(String name) async {
       await loadImages();
+      // Repaint so the fake bars read the style this frame asked for.
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 20));
+      final style = SystemChrome.latestStyle;
       await tester.runAsync(() async {
         final ro = boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-        final img = await ro.toImage(pixelRatio: 3);
+        final img = await ro.toImage(pixelRatio: dpr);
         final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
         File('$outDir/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
         img.dispose();
       });
+      report[name] = {
+        'statusBarIcons': style?.statusBarIconBrightness?.name,
+        'navBarIcons': style?.systemNavigationBarIconBrightness?.name,
+        'statusBarColor': style?.statusBarColor?.toARGB32().toRadixString(16),
+        'navBarColor': style?.systemNavigationBarColor?.toARGB32().toRadixString(16),
+        'navContrastEnforced': style?.systemNavigationBarContrastEnforced,
+        'errorsSoFar': errors.length,
+      };
       debugPrint('SHOT $name');
     }
 
-    Future<Object?> callPlugin(String method, [Object? params]) async {
-      Object? r;
-      await tester.runAsync(() async => r = await svc.plugin('kugou-lite')!.call(method, params));
+    Future<T?> run<T>(Future<T> Function() f) async {
+      T? r;
+      await tester.runAsync(() async => r = await f());
       return r;
     }
 
-    ScaffoldState topScaffold() => tester.state<ScaffoldState>(find.byType(Scaffold).last);
-
+    // Live data used to set up states a test can't reach by playing audio.
+    final found = await run(() => svc.music.search('kugou-lite', query: '周杰伦 晴天', kind: 'tracks'));
+    final tracks = found!.tracks;
+    final qingtian = tracks.firstWhere((t) => t.name == '晴天', orElse: () => tracks.first);
+    StreamInfo? stream;
     try {
-      await tester.pumpWidget(RepaintBoundary(key: boundary, child: const MyGoApp()));
+      stream = await run(() => svc.music.stream(qingtian, 'lossless'));
+    } catch (e) {
+      debugPrint('stream: $e');
+    }
+    final lines = await run(() => svc.music.lyrics(qingtian)) ?? const <LyricLine>[];
+    // A position inside the sung lines (past the credits): the 12th line or so.
+    final sung = lines.where((l) => l.text.trim().isNotEmpty && !l.text.contains('：') && !l.text.contains(':')).toList();
+    final at = sung.length > 12 ? sung[12].start + 400 : 60000;
+    report['lyricsPosition'] = at;
+
+    void setPlaying() {
+      svc.player.tracks.value = List.unmodifiable(tracks);
+      svc.player.current.value = qingtian;
+      svc.player.streamInfo.value = stream;
+      svc.player.debugSetClock(position: Duration(milliseconds: at), playing: true, frozen: true);
+    }
+
+    void clearPlaying() {
+      svc.player.current.value = null;
+      svc.player.debugSetClock(position: Duration.zero);
+    }
+
+    Future<void> resetApp() async {
+      nowPlaying.close();
+      nowPlaying.pane = NpPane.cover;
+      shellState.dest = 'nav:0';
+      shellState.gen++;
+      await tester.pumpWidget(const SizedBox());
+      await settle();
+    }
+
+    Future<void> configure({required Size px, required double ratio, required double top, required double bottom}) async {
+      dpr = ratio;
+      tester.view.physicalSize = px;
+      tester.view.devicePixelRatio = ratio;
+      tester.view.padding = FakeViewPadding(top: top * ratio, bottom: bottom * ratio);
+      tester.view.viewPadding = FakeViewPadding(top: top * ratio, bottom: bottom * ratio);
+      boundary = GlobalKey();
+      await tester.pumpWidget(_Frame(boundary: boundary, top: top, bottom: bottom));
       await wait();
+    }
 
-      // 01 Home
-      await shot('01-home');
-      // 02 Home scrolled to the playlists
-      final home = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first;
-      final pos = tester.state<ScrollableState>(home).position;
-      for (var i = 0; i < 40 && find.byType(MediaCard).evaluate().isEmpty; i++) {
-        pos.jumpTo((pos.pixels + 300).clamp(0.0, pos.maxScrollExtent));
-        await tester.pump();
+    Future<void> openFromMenuAlbum() async {
+      await tester.tap(find.descendant(of: find.byType(TrackTile).first, matching: find.byType(MgIconButton)).last);
+      await tester.pump();
+      for (var i = 0; i < 12; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
+        await tester.pump(const Duration(milliseconds: 50));
       }
-      final cardTop = tester.getTopLeft(find.byType(MediaCard).first).dy;
-      debugPrint('home: pixels=${pos.pixels} cardTop=$cardTop max=${pos.maxScrollExtent}');
-      pos.jumpTo((pos.pixels + cardTop - 330).clamp(0.0, pos.maxScrollExtent));
       await settle();
-      await shot('02-home-scrolled');
-
-      // 03 Drawer
-      topScaffold().openDrawer();
-      await settle();
-      await shot('03-drawer');
-      Navigator.of(tester.element(find.byType(NavigationDrawer))).pop();
-      await settle();
-
-      // 04 A playlist from the home page (推荐歌单)
-      final card = find.byType(MediaCard).first;
-      await tester.ensureVisible(card);
-      await settle();
-      await tester.tap(card);
+      final viewAlbum = find.textContaining('查看专辑');
+      expect(viewAlbum, findsWidgets);
+      await tester.tap(viewAlbum.first);
       await tester.pump();
       await settle();
       await wait();
-      await shot('04-playlist');
-      navigatorKey.currentState!.pop();
-      await settle();
+    }
 
-      // 05 Search: 周杰伦 晴天
+    Future<void> phone(String theme) async {
+      svc.app.themeMode = theme == 'dark' ? ThemeMode.dark : ThemeMode.light;
+      clearPlaying();
+      await resetApp();
+      await configure(px: const Size(1080, 2340), ratio: 3, top: 24, bottom: 16);
+      final p = 'phone-$theme';
+      await shot('$p-01-home');
+
+      // Search 周杰伦 晴天 (submitting cancels the pending suggestion)
       await tester.tap(find.text('搜索').last);
       await settle();
+      await wait();
       await tester.enterText(find.byType(TextField), '周杰伦 晴天');
-      // let the suggestion debounce (350 ms) and its call finish before submitting
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
-      }
-      await tester.pump();
-      if (find.byType(TrackTile).evaluate().isEmpty && find.byType(ListTile).evaluate().isNotEmpty) {
-        await shot('05-search-suggestions');
-      }
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pump();
       await wait();
+      // past the debounce: the suggestion must not come back over the results
+      for (var i = 0; i < 6; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 150)));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       FocusManager.instance.primaryFocus?.unfocus();
       await settle();
-      await shot('06-search');
+      report['$p-searchShowsResults'] = find.byType(TrackTile).evaluate().isNotEmpty;
+      await shot('$p-02-search');
 
-      // 06 Track menu on the first result, then its album (查看专辑)
-      await tester.tap(find.descendant(of: find.byType(TrackTile).first, matching: find.byIcon(Icons.more_vert)));
-      await tester.pump();
-      for (var i = 0; i < 20 && find.byType(BottomSheet).evaluate().isEmpty; i++) {
-        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
-        await tester.pump(const Duration(milliseconds: 50));
-      }
+      // The first result's album, from its song menu
+      await openFromMenuAlbum();
+      await shot('$p-03-album');
+      contentNavKey.currentState!.pop();
       await settle();
-      await shot('07-track-menu');
-      final viewAlbum = find.textContaining('查看专辑');
-      if (viewAlbum.evaluate().isNotEmpty) {
-        await tester.tap(viewAlbum);
-      } else {
-        debugPrint('no 查看专辑 in the menu; opening the album from the 专辑 search tab');
-        navigatorKey.currentState!.pop();
-        await settle();
-        await tester.tap(find.widgetWithText(ChoiceChip, '专辑'));
-        await tester.pump();
-        await wait();
-        await tester.tap(find.byType(ListTile).first);
-      }
+
+      // 我喜欢, from the library tab
+      await tester.tap(find.text('我的').last);
+      await settle();
+      await wait();
+      await tester.tap(find.text('我喜欢').first);
       await tester.pump();
       await settle();
       await wait();
-      await shot('08-album');
-      navigatorKey.currentState!.pop();
-      await settle();
+      await shot('$p-04-liked');
 
-      // "Playing" 晴天: the queue is the search results, as tapping a result
-      // would set it (no audio is decoded in a test; position stays 0:00).
-      final r = await callPlugin('search', {'query': '周杰伦 晴天', 'kind': 'tracks', 'offset': 0}) as Map;
-      final tracks = (r['tracks'] as List).whereType<Map>().map((m) => Track.fromJson(m, 'kugou-lite')).toList();
-      final qingtian = tracks.firstWhere((t) => t.name == '晴天');
-      svc.player.tracks.value = List.unmodifiable(tracks);
-      svc.player.current.value = qingtian;
-      try {
-        final s = await callPlugin('stream', {'id': qingtian.id, 'quality': 'lossless'});
-        svc.player.streamInfo.value = StreamInfo.fromJson((s as Map?) ?? const {});
-      } catch (e) {
-        debugPrint('stream: $e');
-      }
-      await settle();
-
-      // 08 我喜欢 (drawer -> 我喜欢)
-      await tester.tap(find.byType(NavigationDestination).first);
-      await settle();
-      topScaffold().openDrawer();
-      await settle();
-      await tester.tap(find.descendant(of: find.byType(NavigationDrawer), matching: find.text('我喜欢')));
+      // Something plays: the mini player over the tab bar, on Home
+      setPlaying();
+      await tester.tap(find.text('首页').last);
       await settle();
       await wait();
-      await shot('09-liked');
+      await shot('$p-05-mini-player');
 
-      // 09 Now playing (tap the mini player)
+      // Now Playing, grown out of the mini player
       await tester.tap(find.byType(MiniPlayer));
       await tester.pump();
       await settle();
-      await wait(8);
-      await shot('10-now-playing');
+      await shot('$p-06-now-playing');
 
-      // 10 Lyrics (tap the cover)
-      await tester.tap(find.byType(Cover).last);
+      // Lyrics, the line at the position lit
+      nowPlaying.show(NpPane.lyrics);
       await tester.pump();
       await wait();
-      // past the credits, into the sung lines (nothing is highlighted: no playback, position 0:00)
-      await tester.drag(find.byType(LyricsView), const Offset(0, -900));
+      svc.player.debugSetClock(position: Duration(milliseconds: at), playing: true, frozen: true);
+      await tester.pump();
       await settle();
-      await shot('11-lyrics');
-      navigatorKey.currentState!.pop();
+      await shot('$p-07-lyrics');
+      nowPlaying.close();
       await settle();
 
-      // 11 Plugins (drawer -> 插件), after a real update check
-      topScaffold().openDrawer();
-      await settle();
-      await tester.tap(find.descendant(of: find.byType(NavigationDrawer), matching: find.text('插件')));
-      await settle();
-      await tester.tap(find.byIcon(Icons.update));
+      // Plugins, after a real update check
+      clearPlaying();
       await tester.pump();
-      for (var i = 0; i < 40 && find.byIcon(Icons.update).evaluate().isEmpty; i++) {
+      await tester.tap(find.text('我的').last);
+      await settle();
+      await wait();
+      await tester.tap(find.text('插件').first);
+      await tester.pump();
+      await settle();
+      await tester.tap(find.byKey(const ValueKey('check-updates')));
+      await tester.pump();
+      for (var i = 0; i < 40 && find.byKey(const ValueKey('check-updates')).evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
         await tester.pump(const Duration(milliseconds: 50));
       }
       await settle();
-      await shot('12-plugins');
-      navigatorKey.currentState!.pop();
-      await settle();
+      await shot('$p-08-plugins');
+    }
 
-      // 12 我的 tab
-      await tester.tap(find.text('我的').last);
+    try {
+      await phone('dark');
+      await phone('light');
+
+      // Tablet, landscape: the desktop layout.
+      svc.app.themeMode = ThemeMode.dark;
+      clearPlaying();
+      await resetApp();
+      setPlaying();
+      await configure(px: const Size(2560, 1600), ratio: 2, top: 24, bottom: 20);
+      await shot('tablet-01-home');
+      final album = qingtian.album;
+      pushPage(tester.element(find.byType(MyGoApp)), AlbumScreen(pluginId: 'kugou-lite', album: album));
       await tester.pump();
+      await settle();
       await wait();
-      await shot('13-me');
+      await shot('tablet-02-album');
+      nowPlaying.open(pane: NpPane.lyrics);
+      await tester.pump();
+      await settle();
+      await wait();
+      svc.player.debugSetClock(position: Duration(milliseconds: at), playing: true, frozen: true);
+      await tester.pump();
+      await settle();
+      await shot('tablet-03-now-playing-lyrics');
 
       // tear down: unmount, stop the plugin isolates
+      nowPlaying.close();
+      clearPlaying();
       await tester.pumpWidget(const SizedBox());
+      await settle();
       await tester.runAsync(() async {
         svc.plugins.dispose();
         try {
@@ -430,14 +538,17 @@ void main() {
         } catch (_) {}
         root.deleteSync(recursive: true);
       });
-      // the installer's HttpClient keeps an idle connection timer (15 s)
       await tester.pump(const Duration(seconds: 20));
     } finally {
       debugDisableShadows = true;
       FlutterError.onError = origOnError;
       HttpOverrides.global = null;
+      report['errors'] = errors;
+      report['retried'] = retries;
+      File('build/screenshot_report.json')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(const JsonEncoder.withIndent('  ').convert(report));
     }
-    File('build/screenshot_errors.txt').writeAsStringSync([...errors, ...retries.map((r) => 'retried: $r')].join('\n'));
     debugPrint('ERRORS (${errors.length}):\n${errors.join('\n')}');
-  }, timeout: const Timeout(Duration(minutes: 6)));
+  }, timeout: const Timeout(Duration(minutes: 15)));
 }
