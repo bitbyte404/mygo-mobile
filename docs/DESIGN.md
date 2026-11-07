@@ -73,7 +73,7 @@ caps — Lucide-style. A few extra Lucide icons (history, shield, QR, archive, �
 | segmented capsule | spring 280 ms, bounce 0.08 | `segmented` |
 | top scroll edge | 180 ms | `edgeShown` |
 | page push (mobile) | 360 ms, `cubic-bezier(0.22, 1, 0.36, 1)` (website `--ease`), fade + 18% slide | website `styles.css` |
-| tab switch | 180 ms cross-fade in place, no slide (tabs are not forward/back) | `MgMotion.tab`, `_TabPage` in `shell.dart` |
+| tab switch | instant, no slide or fade (tabs are not forward/back) | `_TabPage` in `shell.dart` |
 | hero covers | card → page header (`MaterialRectArcTween`) | mobile |
 
 MyGo's `ui.Snappy` spring is defined in the MyGo framework, not in this repository, so its exact

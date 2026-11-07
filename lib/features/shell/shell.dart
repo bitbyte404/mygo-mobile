@@ -462,8 +462,8 @@ class _PluginBroken extends StatelessWidget {
 
 
 /// A tab's root page. Switching tabs isn't going forward or back, so the
-/// pages cross-fade in place instead of sliding in from the right as a pushed
-/// page does (the tab bar, the rail and the sidebar all switch this way).
+/// new tab simply appears, with no slide and no fade (the tab bar, the rail
+/// and the sidebar all switch this way); pushed pages still slide.
 class _TabPage extends Page<void> {
   const _TabPage({required LocalKey super.key, required this.child});
   final Widget child;
@@ -471,12 +471,8 @@ class _TabPage extends Page<void> {
   @override
   Route<void> createRoute(BuildContext context) => PageRouteBuilder<void>(
         settings: this,
-        transitionDuration: MgMotion.tab,
-        reverseTransitionDuration: MgMotion.tab,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
         pageBuilder: (context, _, _) => child,
-        transitionsBuilder: (context, animation, _, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: child,
-        ),
       );
 }
