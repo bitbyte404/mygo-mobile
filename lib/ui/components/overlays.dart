@@ -112,7 +112,7 @@ Timer? _toastTimer;
 
 /// A short message in a pill above the foot of the screen (MyGo's c.Toast),
 /// clear of the mini player and the tab bar, gone after 3 s.
-void toast(BuildContext context, String msg) {
+void toast(BuildContext context, String msg, {Duration duration = const Duration(seconds: 3)}) {
   final overlay = Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) return;
   _toastEntry?.remove();
@@ -120,7 +120,7 @@ void toast(BuildContext context, String msg) {
   final entry = OverlayEntry(builder: (ctx) => _Toast(msg: msg));
   _toastEntry = entry;
   overlay.insert(entry);
-  _toastTimer = Timer(const Duration(seconds: 3), () {
+  _toastTimer = Timer(duration, () {
     if (_toastEntry == entry) {
       entry.remove();
       _toastEntry = null;

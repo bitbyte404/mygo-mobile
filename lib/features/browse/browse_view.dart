@@ -7,6 +7,7 @@ import 'package:mygo_mobile/features/artist/artist_screen.dart';
 import 'package:mygo_mobile/features/common/cards.dart';
 import 'package:mygo_mobile/features/common/headers.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/features/common/tracks.dart';
 import 'package:mygo_mobile/features/playlist/playlist_screens.dart';
 import 'package:mygo_mobile/features/shell/destinations.dart';
@@ -26,6 +27,7 @@ class BrowseView extends StatelessWidget {
     return Loader<Browse>(
       key: ValueKey('$pluginId/$page'),
       pluginId: pluginId,
+      skeleton: SkeletonKind.browse,
       load: _load,
       builder: (context, b, _) => BrowseBody(pluginId: pluginId, browse: b, fallbackTitle: title),
     );

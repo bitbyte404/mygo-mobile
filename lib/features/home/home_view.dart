@@ -4,6 +4,7 @@ import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/features/browse/browse_view.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/ui/ui.dart';
 
 /// What to say at this hour (ui_kit.go greeting).
@@ -53,6 +54,8 @@ class HomeView extends StatelessWidget {
     return Loader<_Home>(
       key: ValueKey('$pluginId/home'),
       pluginId: pluginId,
+      skeleton: SkeletonKind.browse,
+      skeletonHeader: header,
       load: _load,
       builder: (context, h, _) {
         final now = DateTime.now();

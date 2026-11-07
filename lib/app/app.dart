@@ -5,6 +5,7 @@ import 'package:mygo_mobile/features/shell/shell.dart';
 import 'package:mygo_mobile/ui/ui.dart';
 
 import 'services.dart';
+import 'system_insets.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -27,7 +28,7 @@ class MyGoApp extends StatelessWidget {
         locale: svc.app.language == 'zh-CN' ? const Locale('zh', 'CN') : const Locale('en'),
         supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        builder: (context, child) => PlayerShortcuts(child: child!),
+        builder: (context, child) => SystemInsets(child: PlayerShortcuts(child: child!)),
         home: const AppShell(),
       ),
     );

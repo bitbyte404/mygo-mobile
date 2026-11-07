@@ -82,10 +82,28 @@ class Player extends BaseAudioHandler with SeekHandler {
     }
   }
 
+  /// Reads the playing media element's own clock (the web: the <audio>
+  /// element's currentTime, read when asked, so exact to the frame). Null
+  /// where there is none, or when it isn't the track playing.
+  Duration? Function()? mediaClock;
+
+  /// The clock before 0.2.1 (position reports plus a stopwatch), kept to
+  /// measure against (?clock=legacy on the web).
+  bool legacyClock = false;
+
   Duration get positionNow {
     final base = positionN.value;
-    if (!playingN.value || _frozen) return base;
-    return base + _posWatch.elapsed;
+    if (legacyClock) return !playingN.value || _frozen ? base : base + _posWatch.elapsed;
+    if (_frozen || _debugClock) return playingN.value && !_frozen ? base + _posWatch.elapsed : base;
+    final m = mediaClock?.call();
+    // Trusted only near the reported position: anything else is a stale
+    // element (the track before) or a seek in flight.
+    if (m != null && (m - base).abs() < const Duration(seconds: 4)) return m;
+    if (!playingN.value) return base;
+    // Between reports: run on, but never past a stall (just_audio stops
+    // reporting while it buffers) by more than one report's worth.
+    final e = _posWatch.elapsed;
+    return base + (e > const Duration(milliseconds: 400) ? const Duration(milliseconds: 400) : e);
   }
 
   /// For tests and screenshots, where nothing decodes: pins the position and

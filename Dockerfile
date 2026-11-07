@@ -13,6 +13,7 @@ COPY pubspec.yaml pubspec.lock ./
 RUN flutter config --no-analytics >/dev/null && flutter pub get
 COPY . .
 RUN flutter build web --release --no-web-resources-cdn \
+ && sh tool/stamp_sw.sh build/web \
  && find build/web -type f \( -name '*.js' -o -name '*.json' -o -name '*.html' -o -name '*.wasm' -o -name '*.otf' -o -name '*.ttf' -o -name '*.frag' -o -name '*.bin' \) \
       -size +1k -exec gzip -9 -k {} \;
 

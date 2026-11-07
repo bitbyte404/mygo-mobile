@@ -127,8 +127,16 @@ class Installer {
     return '$owner/$repo';
   }
 
-  Future<Uint8List> _get(Uri url, {int limit = maxZip}) async {
-    final res = await _http.send(http.Request('GET', url)..headers.addAll(github.headers));
+  /// How long a download may take to answer, and to arrive in full.
+  static const connectTimeout = Duration(seconds: 30);
+  static const downloadTimeout = Duration(seconds: 90);
+
+  Future<Uint8List> _get(Uri url, {int limit = maxZip}) => _getUntimed(url, limit: limit).timeout(downloadTimeout, onTimeout: () => throw InstallError('download timed out: $url'));
+
+  Future<Uint8List> _getUntimed(Uri url, {int limit = maxZip}) async {
+    final res = await _http
+        .send(http.Request('GET', url)..headers.addAll(github.headers))
+        .timeout(connectTimeout, onTimeout: () => throw InstallError('no answer from $url'));
     if (res.statusCode != 200) {
       var detail = '';
       try {
@@ -205,7 +213,12 @@ class Installer {
     }
     if (!files.containsKey(manifest.main)) throw InstallError('${manifest.main} is missing');
     Manifest? previous;
-    final prev = await store.readString('$pluginsDir/${manifest.id}/plugin.json');
+    final String? prev;
+    try {
+      prev = await store.readString('$pluginsDir/${manifest.id}/plugin.json').timeout(const Duration(seconds: 20));
+    } catch (e) {
+      throw InstallError('could not read the installed plugins: $e');
+    }
     if (prev != null) {
       try {
         previous = Manifest.parse(prev);

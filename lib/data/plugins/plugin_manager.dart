@@ -223,15 +223,21 @@ class PluginManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> commit(PendingInstall pending) async {
+  /// Registers, writes and starts [pending]. [onStep] hears which step it is
+  /// on (register, write, start), for a message if one fails.
+  Future<void> commit(PendingInstall pending, {void Function(String step)? onStep}) async {
+    onStep?.call('register');
     await registrar?.register(pending.manifest, pending.origin);
     final old = byId(pending.manifest.id);
     old?.worker?.close();
+    onStep?.call('write');
     await pending.commit(store, pluginsDir);
     final p = await _read('$pluginsDir/${pending.manifest.id}');
-    if (p != null) await _startWorker(p);
+    if (p == null) throw InstallError('the plugin was written but could not be read back');
+    onStep?.call('start');
+    await _startWorker(p);
     plugins.sort((a, b) => a.name.compareTo(b.name));
-    if (p != null && (_activeId == null || plugins.length == 1)) _activeId = p.id;
+    if (_activeId == null || plugins.length == 1) _activeId = p.id;
     notifyListeners();
   }
 

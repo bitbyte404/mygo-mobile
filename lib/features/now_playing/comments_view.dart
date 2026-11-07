@@ -62,7 +62,7 @@ class _CommentsViewState extends State<CommentsView> {
             );
           }
           if (i == _comments.length + 1) {
-            if (_loading) return const Padding(padding: EdgeInsets.all(16), child: Center(child: MgSpinner(color: Colors.white70)));
+            if (_loading) return MgShimmer(onDark: true, child: Column(children: [for (var k = 0; k < (_comments.isEmpty ? 6 : 2); k++) SkeletonCommentRow(index: k)]));
             if (_comments.isEmpty) return Padding(padding: const EdgeInsets.all(24), child: Center(child: Text(s['noComments'], style: TextStyle(color: white.withValues(alpha: 0.5)))));
             return const SizedBox(height: 24);
           }

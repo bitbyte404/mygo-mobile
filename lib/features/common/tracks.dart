@@ -6,6 +6,7 @@ import 'package:mygo_mobile/ui/ui.dart';
 import 'package:mygo_mobile/features/album/album_screen.dart';
 import 'package:mygo_mobile/features/artist/artist_screen.dart';
 import 'package:mygo_mobile/features/shell/navigation.dart';
+import 'skeletons.dart';
 
 /// A song in a list (ui_pages.go trackRow): its number or cover, its name
 /// (the accent while it plays, with dancing bars), its artists, a heart if
@@ -271,7 +272,7 @@ class _TrackListViewState extends State<TrackListView> {
         if (k == tracks.length) {
           if (!widget.more) return const SizedBox(height: 8);
           _maybeMore();
-          return const SizedBox(height: 64, child: Center(child: MgSpinner(size: 18)));
+          return const SkeletonMoreRows();
         }
         if (widget.more && k > tracks.length - 15) _maybeMore();
         return TrackTile(

@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+const version = "0.2.1"
 
 type Config struct {
 	Token          string   // RELAY_TOKEN: required on every API request when set
@@ -114,6 +114,7 @@ func NewServer(cfg Config, reg *Registry, rt http.RoundTripper, proxied bool) *S
 	m.HandleFunc("/api/plugins/", s.auth(s.plugins))
 	m.HandleFunc("/api/github/zip", s.auth(s.githubZip))
 	m.HandleFunc("/api/github/manifest", s.auth(s.githubManifest))
+	m.HandleFunc("/api/log", s.auth(s.clientLog))
 	m.HandleFunc("/relay", s.auth(s.relay))
 	m.HandleFunc("/stream", s.auth(s.media(false)))
 	m.HandleFunc("/img", s.auth(s.media(true)))
@@ -782,4 +783,38 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func jsonError(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("X-Relay-Error", "1")
 	writeJSON(w, status, map[string]string{"error": msg, "code": code})
+}
+
+// clientLog writes what the app reports about a failure (an install that
+// didn't finish, say) to the relay's log, so a problem on a phone, where
+// there is no console to read, can be seen on the server. Small, plain text,
+// one line per entry; nothing is stored.
+func (s *Server) clientLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, 405, "method", "POST")
+		return
+	}
+	var body struct {
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+		Context string `json:"context"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&body); err != nil {
+		jsonError(w, 400, "bad_request", "expected {\"kind\", \"message\"}")
+		return
+	}
+	clean := func(v string, n int) string {
+		v = strings.Map(func(c rune) rune {
+			if c < 0x20 || c == 0x7f {
+				return ' '
+			}
+			return c
+		}, v)
+		if len(v) > n {
+			v = v[:n] + "…"
+		}
+		return v
+	}
+	log.Printf("client %s: %s [%s] ua=%q", clean(body.Kind, 40), clean(body.Message, 1500), clean(body.Context, 500), clean(r.UserAgent(), 200))
+	writeJSON(w, 200, map[string]any{"ok": true})
 }

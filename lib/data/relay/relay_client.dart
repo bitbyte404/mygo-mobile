@@ -74,7 +74,10 @@ class RelayClient implements PluginRegistrar {
     final body = origin.kind == 'github' && origin.repo.isNotEmpty
         ? {'kind': 'github', 'repo': origin.repo, 'branch': origin.branch}
         : {'kind': 'manifest', 'manifest': manifest.toJson()};
-    final j = await _json(await _http.post(_u('api/plugins'), headers: {'content-type': 'application/json'}, body: jsonEncode(body)));
+    final r = await _http
+        .post(_u('api/plugins'), headers: {'content-type': 'application/json'}, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 60), onTimeout: () => throw RelayError(504, 'timeout', 'the relay did not answer the registration in time'));
+    final j = await _json(r);
     if (j['id'] != manifest.id) {
       throw RelayError(409, 'manifest', 'the relay read plugin "${j['id']}" from ${origin.repo}, not "${manifest.id}"');
     }

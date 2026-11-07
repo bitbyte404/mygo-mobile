@@ -12,15 +12,44 @@ function req(r) {
   });
 }
 
+// iOS can drop a page's IndexedDB connection (the app was in the background,
+// the home-screen app was suspended): the cached connection is then closed and
+// every transaction on it throws. So a closed connection is forgotten and
+// opened again, and nothing waits on IndexedDB forever.
+const OPEN_TIMEOUT = 10000;
+const TX_TIMEOUT = 20000;
+
+function withTimeout(p, ms, what) {
+  let t;
+  return Promise.race([
+    p,
+    new Promise((_, reject) => { t = setTimeout(() => reject(new Error(`IndexedDB didn't answer (${what})`)), ms); }),
+  ]).finally(() => clearTimeout(t));
+}
+
 export function open(name = "mygo") {
   if (!dbs.has(name)) {
-    dbs.set(name, new Promise((resolve, reject) => {
-      const r = indexedDB.open(name, 1);
+    const p = withTimeout(new Promise((resolve, reject) => {
+      let r;
+      try {
+        r = indexedDB.open(name, 1);
+      } catch (e) {
+        reject(e);
+        return;
+      }
       r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-      r.onsuccess = () => resolve(r.result);
-      r.onerror = () => reject(r.error);
+      r.onsuccess = () => {
+        const db = r.result;
+        const forget = () => { if (dbs.get(name) === p) dbs.delete(name); };
+        db.onclose = forget;
+        db.onversionchange = () => { forget(); db.close(); };
+        resolve(db);
+      };
+      r.onerror = () => reject(r.error || new Error("IndexedDB could not be opened"));
       r.onblocked = () => reject(new Error("IndexedDB is blocked by another tab"));
-    }));
+    }), OPEN_TIMEOUT, "open");
+    p.catch(() => { if (dbs.get(name) === p) dbs.delete(name); });
+    dbs.set(name, p);
   }
   return dbs.get(name);
 }
@@ -28,17 +57,29 @@ export function open(name = "mygo") {
 const norm = (p) => String(p).split("/").filter((s) => s && s !== ".").join("/");
 const range = (dir) => IDBKeyRange.bound(dir + "/", dir + "/\uffff");
 
-async function tx(db, mode, fn) {
+async function tx(db, mode, fn, retry = true) {
   const d = await open(db);
-  const t = d.transaction(STORE, mode);
-  const s = t.objectStore(STORE);
-  const out = await fn(s);
-  await new Promise((resolve, reject) => {
+  let t;
+  try {
+    t = d.transaction(STORE, mode);
+  } catch (e) {
+    // InvalidStateError: the connection was closed under us. Open it again once.
+    dbs.delete(db);
+    if (retry) return tx(db, mode, fn, false);
+    throw e;
+  }
+  const done = new Promise((resolve, reject) => {
     t.oncomplete = resolve;
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error || new Error("aborted"));
+    t.onerror = () => reject(t.error || new Error("IndexedDB transaction failed"));
+    t.onabort = () => reject(t.error || new Error("IndexedDB transaction aborted"));
   });
-  return out;
+  done.catch(() => {});
+  const s = t.objectStore(STORE);
+  return withTimeout((async () => {
+    const out = await fn(s);
+    await done;
+    return out;
+  })(), TX_TIMEOUT, mode);
 }
 
 export async function get(db, path) {

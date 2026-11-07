@@ -284,7 +284,7 @@ void main() {
       for (var i = 0; i < maxSecs * 4; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
         await tester.pump(const Duration(milliseconds: 50));
-        if (find.byType(MgSpinner).evaluate().isEmpty) break;
+        if (find.byType(MgShimmer).evaluate().isEmpty && find.byType(MgSpinner).evaluate().isEmpty) break; // no skeleton or spinner left
       }
       await settle();
     }

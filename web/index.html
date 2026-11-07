@@ -3,25 +3,193 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- The app runs in #app (Flutter's custom-element embedding), so Flutter
+       doesn't replace this tag: viewport-fit=cover gives env(safe-area-inset-*),
+       and maximum-scale=1 stops iOS zooming into a focused text field (which
+       left the page wider and taller than the screen). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="description" content="MyGo 音乐：运行 MyGo Music 插件的网页播放器">
-  <meta name="theme-color" content="#141416">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="dark light">
+  <meta name="format-detection" content="telephone=no">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- "default", not black-translucent: iOS reads this once at launch and
+       black-translucent always draws white status-bar text over the page,
+       unreadable in the light theme. "default" gives the bar its own
+       background (the theme-color pair above on iOS 15+) and readable text;
+       the page starts below it (safe-area-inset-top is then 0). -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="MyGo 音乐">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-  <link rel="icon" type="image/png" href="favicon.png"/>
-  <link rel="preload" href="fonts/NotoSansSC-Regular.woff2" as="fetch" type="font/woff2" crossorigin>
-  <title>MyGo 音乐</title>
+  <meta name="application-name" content="MyGo 音乐">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon-precomposed" sizes="180x180" href="apple-touch-icon-precomposed.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+  <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="manifest" href="manifest.json">
+  <title>MyGo 音乐</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #141416; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; overscroll-behavior: none;
+      position: fixed; inset: 0;
+      background: #141416;
+      -webkit-text-size-adjust: 100%;
+      -webkit-tap-highlight-color: transparent;
+    }
     @media (prefers-color-scheme: light) { html, body { background: #ffffff; } }
+    /* Flutter's host: exactly the visible viewport (JS below follows
+       visualViewport as Safari's bars and the keyboard come and go). */
+    #app {
+      position: fixed; left: 0; top: 0;
+      width: 100vw; height: 100vh; height: 100dvh;
+      overflow: hidden; touch-action: none;
+    }
+    /* Measures env(safe-area-inset-*) for the app's MediaQuery padding. */
+    #mygo-safe {
+      position: fixed; left: 0; top: 0; width: 0; height: 0; visibility: hidden; pointer-events: none;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    }
+    #mygo-splash {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      pointer-events: none; transition: opacity .25s ease-out;
+    }
+    #mygo-splash img { width: 88px; height: 88px; border-radius: 22px; opacity: .92; }
+    #mygo-update {
+      position: fixed; left: 50%; transform: translateX(-50%);
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); z-index: 10;
+      display: none; gap: 12px; align-items: center;
+      padding: 10px 12px 10px 16px; border-radius: 999px;
+      font: 500 14px -apple-system, system-ui, sans-serif;
+      background: #2b2b2e; color: #f5f5f7; border: .5px solid rgba(255,255,255,.14);
+      box-shadow: 0 8px 24px -4px rgba(0,0,0,.35); white-space: nowrap;
+    }
+    #mygo-update button {
+      font: 600 14px -apple-system, system-ui, sans-serif; border: 0; border-radius: 999px;
+      padding: 6px 14px; background: #f45058; color: #fff;
+    }
+    @media (prefers-color-scheme: light) {
+      #mygo-update { background: #f6f6f6; color: #1d1d1f; border-color: rgba(0,0,0,.12); }
+      #mygo-update button { background: #e2333c; }
+    }
   </style>
+  <script>
+  // Layout glue for iOS Safari (tab and home-screen app) and Android Chrome.
+  (function () {
+    var VIEWPORT = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content';
+    function fixMeta() {
+      var ms = document.querySelectorAll('meta[name="viewport"]');
+      for (var i = 0; i < ms.length; i++) if (ms[i].getAttribute('content') !== VIEWPORT) ms[i].setAttribute('content', VIEWPORT);
+    }
+    fixMeta();
+    new MutationObserver(fixMeta).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['content'] });
+
+    function editing() {
+      var a = document.activeElement;
+      return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable);
+    }
+    // The <audio> element the player plays through, for the lyrics clock
+    // (lib/app/platform/platform_web.dart mediaClock): its currentTime is
+    // the position of what is heard, read fresh each frame.
+    var play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      if (this instanceof HTMLAudioElement) window.__mygoAudio = this;
+      return play.apply(this, arguments);
+    };
+    var insets = { top: 0, right: 0, bottom: 0, left: 0 };
+    window.mygoInsets = insets;
+    var queued = false;
+    function measure() {
+      queued = false;
+      var vv = window.visualViewport;
+      var host = document.getElementById('app');
+      // The page itself never scrolls; iOS scrolls it to show a focused field
+      // (or after the keyboard goes) and leaves it there.
+      if (!editing() && (window.scrollY || window.scrollX)) window.scrollTo(0, 0);
+      if (host && vv) {
+        host.style.width = vv.width + 'px';
+        host.style.height = vv.height + 'px';
+        host.style.top = (editing() ? vv.offsetTop : 0) + 'px';
+        host.style.left = vv.offsetLeft + 'px';
+      }
+      var probe = document.getElementById('mygo-safe');
+      var next = { top: 0, right: 0, bottom: 0, left: 0 };
+      if (probe) {
+        var cs = getComputedStyle(probe);
+        next = { top: parseFloat(cs.paddingTop) || 0, right: parseFloat(cs.paddingRight) || 0, bottom: parseFloat(cs.paddingBottom) || 0, left: parseFloat(cs.paddingLeft) || 0 };
+      }
+      if (window.__MYGO_FAKE_INSETS) next = Object.assign({}, window.__MYGO_FAKE_INSETS); // tests
+      // With the keyboard up the home indicator / toolbar is under it.
+      if (vv && editing() && window.innerHeight - vv.height > 120) next.bottom = 0;
+      if (next.top !== insets.top || next.right !== insets.right || next.bottom !== insets.bottom || next.left !== insets.left) {
+        insets = next;
+        window.mygoInsets = insets;
+        window.dispatchEvent(new CustomEvent('mygo-insets', { detail: insets }));
+      }
+    }
+    function queue() { if (!queued) { queued = true; requestAnimationFrame(measure); } }
+    window.mygoMeasure = measure;
+    if (window.visualViewport) {
+      visualViewport.addEventListener('resize', queue);
+      visualViewport.addEventListener('scroll', queue);
+    }
+    window.addEventListener('resize', queue);
+    window.addEventListener('orientationchange', function () { queue(); setTimeout(queue, 350); });
+    window.addEventListener('scroll', queue, { passive: true });
+    document.addEventListener('focusout', function () { setTimeout(queue, 60); setTimeout(queue, 400); });
+    document.addEventListener('focusin', function () { setTimeout(queue, 60); });
+    document.addEventListener('DOMContentLoaded', measure);
+    window.addEventListener('flutter-first-frame', function () {
+      measure();
+      var sp = document.getElementById('mygo-splash');
+      if (sp) { sp.style.opacity = '0'; setTimeout(function () { sp.remove(); }, 300); }
+    });
+
+    // The home-screen app has no reload button: when an update is ready,
+    // offer one (the service worker never swaps code under a running page).
+    var secure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if ('serviceWorker' in navigator && secure) {
+      window.addEventListener('load', function () {
+        var reloading = false;
+        // Only an update over a worker already running this page is offered;
+        // the very first install has nothing to replace.
+        var hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (reloading || !window.__mygoUpdateAccepted) return;
+          reloading = true;
+          location.reload();
+        });
+        function offer(worker) {
+          var bar = document.getElementById('mygo-update');
+          if (!bar || !hadController) return;
+          var zh = (navigator.language || '').toLowerCase().indexOf('zh') === 0;
+          bar.querySelector('span').textContent = zh ? '有新版本' : 'A new version is ready';
+          var btn = bar.querySelector('button');
+          btn.textContent = zh ? '刷新' : 'Reload';
+          btn.onclick = function () { window.__mygoUpdateAccepted = true; worker.postMessage({ type: 'skipWaiting' }); setTimeout(function () { location.reload(); }, 3000); };
+          bar.style.display = 'flex';
+        }
+        navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).then(function (reg) {
+          if (reg.waiting) offer(reg.waiting);
+          reg.addEventListener('updatefound', function () {
+            var w = reg.installing;
+            if (!w) return;
+            w.addEventListener('statechange', function () { if (w.state === 'installed') offer(w); });
+          });
+          // A home-screen app can stay open for days: check when it comes back.
+          document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
+        }).catch(function (e) { console.warn('service worker:', e); });
+      });
+    }
+  })();
+  </script>
 </head>
 <body>
+  <div id="mygo-safe"></div>
+  <div id="mygo-splash"><img src="icons/Icon-192.png" alt=""></div>
+  <div id="app"></div>
+  <div id="mygo-update" role="status"><span></span><button type="button"></button></div>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

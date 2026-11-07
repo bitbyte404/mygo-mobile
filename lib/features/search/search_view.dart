@@ -4,6 +4,7 @@ import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/features/album/album_screen.dart';
 import 'package:mygo_mobile/features/artist/artist_screen.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/features/common/tracks.dart';
 import 'package:mygo_mobile/features/playlist/playlist_screens.dart';
 import 'package:mygo_mobile/features/shell/navigation.dart';
@@ -129,7 +130,13 @@ class _SearchViewState extends State<SearchView> {
           ),
       ]);
     }
-    if (_c.loading) return const Center(key: ValueKey('loading'), child: MgSpinner());
+    if (_c.loading) {
+      final compact = isCompact(context);
+      return MgShimmer(
+        key: const ValueKey('loading'),
+        child: ListView(physics: const NeverScrollableScrollPhysics(), padding: insets, children: [for (var i = 0; i < 12; i++) SkeletonSongRow(index: i, compact: compact)]),
+      );
+    }
     if (_c.error != null) return ErrorView(key: const ValueKey('error'), error: _c.error!, onRetry: _search, pluginId: widget.pluginId);
     final r = _c.result;
     if (r == null) {
@@ -170,7 +177,7 @@ class _SearchViewState extends State<SearchView> {
         padding: insets,
         children: [
           ...rows,
-          if (r.more) const SizedBox(height: 64, child: Center(child: MgSpinner(size: 18))),
+          if (r.more) const SkeletonMoreRows(),
         ],
       ),
     );

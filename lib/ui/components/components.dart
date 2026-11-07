@@ -5,3 +5,4 @@ export 'display.dart';
 export 'overlays.dart';
 export 'scrubber.dart';
 export 'selection.dart';
+export 'skeleton.dart';

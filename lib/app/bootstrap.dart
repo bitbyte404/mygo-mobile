@@ -46,6 +46,12 @@ Future<Services> bootstrap({Future<void> Function(RelayClient relay)? relayGate}
     github: bits.github,
     registrar: relay,
   );
+  if (pageParam('clock') == 'legacy') {
+    player.legacyClock = true;
+  } else {
+    player.mediaClock = mediaClock;
+  }
+  exposeClock(() => player.positionNow);
   final services = Services(app: app, plugins: plugins, player: player, relay: relay)..connectPlayer();
   await plugins.init(activeId: app.activePlugin);
   return services;

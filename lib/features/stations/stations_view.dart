@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/ui/ui.dart';
 
 Future<void> playStation(BuildContext context, String pluginId, Station st) async {
@@ -27,6 +28,7 @@ class StationsView extends StatelessWidget {
     final p = context.mg;
     return Loader<List<Station>>(
       pluginId: pluginId,
+      skeleton: SkeletonKind.cards,
       load: () => svc.music.stations(pluginId),
       builder: (context, stations, _) => ListView(
         physics: const AlwaysScrollableScrollPhysics(),

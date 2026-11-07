@@ -72,7 +72,7 @@ browser ──────────────── https://music.example �
 docker build -t mygo-web .
 
 # or build here, ship files (fast on a small server)
-flutter build web --release --no-web-resources-cdn
+flutter build web --release --no-web-resources-cdn && sh tool/stamp_sw.sh
 (cd relay && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o ../dist/mygo-relay .)
 docker build -f Dockerfile.prebuilt -t mygo-web .
 
@@ -100,6 +100,37 @@ Serving under a sub-path works (`flutter build web --base-href /music/` and prox
 the prefix stripped). Health: `GET /healthz`; the image's HEALTHCHECK runs `mygo-relay -healthcheck`.
 
 Install a plugin by opening `https://music.example.com/?install=owner/repo`, or from the plugins page.
+
+## Home-screen app (PWA)
+
+- **Manifest** (`web/manifest.json`): `id` and `start_url` are `/`, `scope` `/`, `display`
+  standalone, the icons plus `apple-touch-icon.png` (180×180, also `-precomposed`) for iOS. The relay
+  serves it as `application/manifest+json`. Caveat: `start_url` `/` assumes the app is served at the
+  site root; under a sub-path (`--base-href /music/`) change `id`, `start_url` and `scope` to match.
+- **iPhone**: iOS copies the manifest and icon when the app is added to the home screen and never
+  re-reads them. After a change to the manifest, the icons or the `apple-mobile-web-app-*` tags,
+  **remove the home-screen app and add it again** (Share → Add to Home Screen); a reload is not
+  enough. The status bar style is `default` (iOS reads it once at launch; `black-translucent`
+  draws white text over the page, unreadable in the light theme), so the page starts below the
+  status bar on a background from the `theme-color` pair. The viewport tag and the layout glue in
+  `index.html` keep the app exactly the visible viewport (safe-area insets measured from
+  `env(safe-area-inset-*)`, keyboard, no zoom on a focused field).
+- **Service worker** (`web/sw.js`): keeps the app shell (index, `main.dart.js`, CanvasKit, fonts,
+  icons, the plugin host in `mygo/`) so the app opens at once. The page itself (navigations,
+  `index.html`, `flutter_bootstrap.js`, `version.json`, `manifest.json`) is network first with the
+  cache as fallback; the rest of the shell is cache first. The relay is never cached (`/api`,
+  `/relay`, `/stream`, `/img`, `/gfonts`, `/healthz`). The relay serves `sw.js` with
+  `Cache-Control: no-cache` and `Service-Worker-Allowed: /`, and the page registers it with
+  `updateViaCache: 'none'` and checks for an update whenever the app comes back to the foreground.
+- **Stamping**: after `flutter build web`, run `sh tool/stamp_sw.sh` (it replaces `__MYGO_BUILD__`
+  in `build/web/sw.js` with a hash of the build). Every build is then a new worker with its own
+  cache, and the old cache is deleted when it takes over. An unstamped `sw.js` would never update.
+- **Updates**: a new worker waits; the page shows "有新版本 · 刷新" and only swaps when it is tapped,
+  so code never changes under a running app. The first install offers nothing.
+- **`POST /api/log`** (behind the token): the app reports failures it can't show anywhere useful
+  (an install that timed out or failed, with the step it was on) as `{"kind","message","context"}`;
+  the relay writes one sanitized line to its log (`docker logs mygo-web`) with the User-Agent, and
+  stores nothing. Body limit 8 KB.
 
 ## Testing
 

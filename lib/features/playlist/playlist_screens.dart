@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/features/common/tracks.dart';
 import 'package:mygo_mobile/features/common/headers.dart';
 import 'package:mygo_mobile/features/shell/navigation.dart';
@@ -21,6 +22,7 @@ class PlaylistScreen extends StatelessWidget {
       title: playlist.name,
       child: Loader<Playlist>(
         pluginId: pluginId,
+        skeleton: SkeletonKind.collection,
         load: () => svc.music.playlist(pluginId, playlist.id),
         builder: (context, p, _) => TrackListView(
           tracks: p.tracks,
@@ -68,6 +70,7 @@ class PlaylistsScreen extends StatelessWidget {
       title: s['playlists'],
       child: Loader<List<Playlist>>(
         pluginId: pluginId,
+        skeleton: SkeletonKind.cards,
         load: () => svc.music.playlists(pluginId),
         builder: (context, lists, _) {
           final mine = lists.where((p) => p.mine).toList();

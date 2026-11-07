@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:mygo_mobile/app/system_insets.dart';
 import 'package:mygo_mobile/data/relay/relay_client.dart';
 import 'package:mygo_mobile/l10n/strings.dart';
 import 'package:mygo_mobile/ui/ui.dart';
@@ -47,13 +48,16 @@ class _GateApp extends StatelessWidget {
       title: s['appName'],
       theme: mgTheme(MgPalette.lightPalette),
       darkTheme: mgTheme(MgPalette.darkPalette),
+      builder: (context, child) => SystemInsets(child: child!),
       home: Builder(builder: (context) {
         return Scaffold(
           backgroundColor: context.mg.bg,
-          body: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: RelayTokenForm(relay: relay, s: s, onDone: onDone)),
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: RelayTokenForm(relay: relay, s: s, onDone: onDone)),
+              ),
             ),
           ),
         );

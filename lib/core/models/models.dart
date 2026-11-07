@@ -298,8 +298,27 @@ class Comment {
       liked: _b(m['liked']));
 }
 
-/// Lyrics as lines, from {lines} or parsed from {lrc, translation}.
-List<LyricLine> parseLyrics(Map m) {
+/// Lyrics as lines, from {lines} or parsed from {lrc, translation}. An
+/// `offset` (ms, LRC's [offset:] sense: positive shows the words sooner)
+/// moves every time.
+List<LyricLine> parseLyrics(Map m) => _shift(_parseLyrics(m), _i(m['offset']));
+
+List<LyricLine> _shift(List<LyricLine> lines, int offset) {
+  if (offset == 0) return lines;
+  int t(int v) => v - offset < 0 ? 0 : v - offset;
+  return [
+    for (final l in lines)
+      LyricLine(
+        start: t(l.start),
+        end: l.end == 0 ? 0 : t(l.end),
+        text: l.text,
+        translation: l.translation,
+        words: [for (final w in l.words) LyricWord(t(w.start), t(w.end), w.text)],
+      ),
+  ];
+}
+
+List<LyricLine> _parseLyrics(Map m) {
   if (m['lines'] is List && (m['lines'] as List).isNotEmpty) {
     return (m['lines'] as List).whereType<Map>().map((l) {
       final words = l['words'] is List
@@ -318,8 +337,15 @@ List<LyricLine> parseLyrics(Map m) {
 }
 
 final _lrcTime = RegExp(r'\[(\d+):(\d+)(?:[.:](\d+))?\]');
+final _lrcOffset = RegExp(r'^\s*\[offset:\s*([+-]?\d+)\s*\]', caseSensitive: false, multiLine: true);
 
+/// LRC lines, with the file's [offset:ms] applied (positive: sooner).
 List<LyricLine> parseLrc(String lrc) {
+  final off = _lrcOffset.firstMatch(lrc);
+  return _shift(_parseLrc(lrc), off == null ? 0 : int.parse(off.group(1)!));
+}
+
+List<LyricLine> _parseLrc(String lrc) {
   final out = <LyricLine>[];
   for (final raw in lrc.split(RegExp(r'\r?\n'))) {
     final times = _lrcTime.allMatches(raw).toList();

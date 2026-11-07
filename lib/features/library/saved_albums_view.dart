@@ -4,6 +4,7 @@ import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/features/album/album_screen.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/features/shell/navigation.dart';
 import 'package:mygo_mobile/ui/ui.dart';
 
@@ -16,6 +17,7 @@ class SavedAlbumsView extends StatelessWidget {
     final p = context.mg;
     return Loader<List<Album>>(
       pluginId: pluginId,
+      skeleton: SkeletonKind.cards,
       load: () => svc.music.savedAlbums(pluginId),
       builder: (context, albums, _) => ListView(
         physics: const AlwaysScrollableScrollPhysics(),

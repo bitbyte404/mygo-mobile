@@ -24,7 +24,7 @@ func newStatic(root string) http.Handler { return &static{root: root} }
 
 var typeByExt = map[string]string{
 	".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
-	".json": "application/json", ".wasm": "application/wasm", ".css": "text/css; charset=utf-8",
+	".json": "application/json", ".webmanifest": "application/manifest+json", ".wasm": "application/wasm", ".css": "text/css; charset=utf-8",
 	".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml", ".otf": "font/otf", ".ttf": "font/ttf",
 	".woff2": "font/woff2", ".frag": "application/octet-stream", ".bin": "application/octet-stream",
 	".symbols": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8",
@@ -32,7 +32,7 @@ var typeByExt = map[string]string{
 
 func compressible(ct string) bool {
 	return strings.HasPrefix(ct, "text/") || strings.HasPrefix(ct, "application/json") || ct == "application/wasm" ||
-		ct == "font/ttf" || ct == "font/otf" || ct == "image/svg+xml" || ct == "application/octet-stream"
+		ct == "application/manifest+json" || ct == "font/ttf" || ct == "font/otf" || ct == "image/svg+xml" || ct == "application/octet-stream"
 }
 
 func cacheControl(p string) string {
@@ -72,6 +72,14 @@ func (s *static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ct := typeByExt[strings.ToLower(path.Ext(p))]
+	switch p {
+	case "/manifest.json":
+		ct = "application/manifest+json"
+	case "/sw.js":
+		// The service worker: always revalidated (browsers also cap its HTTP
+		// cache at 24 h), allowed to control the whole origin.
+		h.Set("Service-Worker-Allowed", "/")
+	}
 	if ct == "" {
 		ct = mime.TypeByExtension(path.Ext(p))
 	}

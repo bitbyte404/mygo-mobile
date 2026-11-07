@@ -1,9 +1,10 @@
-// Loading a page's data with a spinner, pull-to-refresh, and an error view
+// Loading a page's data behind a skeleton of the page, pull-to-refresh, and an error view
 // that knows the remedies a plugin's error asks for (sign in, settings).
 import 'package:flutter/material.dart';
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/errors.dart';
 import 'package:mygo_mobile/features/account/sign_in.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/features/plugins/plugin_settings_page.dart';
 import 'package:mygo_mobile/features/shell/navigation.dart';
 import 'package:mygo_mobile/ui/ui.dart';
@@ -11,8 +12,14 @@ import 'package:mygo_mobile/ui/ui.dart';
 /// Loads what a page shows each time it opens, with pull-to-refresh, and an
 /// error view that knows sign-in and settings.
 class Loader<T> extends StatefulWidget {
-  const Loader({super.key, required this.load, required this.builder, this.pluginId});
+  const Loader({super.key, required this.load, required this.builder, this.pluginId, this.skeleton = SkeletonKind.tracks, this.skeletonHeader});
   final Future<T> Function() load;
+
+  /// The page's shape while it loads.
+  final SkeletonKind skeleton;
+
+  /// Shown over the skeleton as it will be over the page (a source switcher).
+  final Widget? skeletonHeader;
   final Widget Function(BuildContext context, T value, Future<void> Function() refresh) builder;
   final String? pluginId;
 
@@ -45,7 +52,7 @@ class _LoaderState<T> extends State<Loader<T>> {
       builder: (context, snap) {
         Widget child;
         if (snap.connectionState != ConnectionState.done) {
-          child = KeyedSubtree(key: const ValueKey('loading'), child: Padding(padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top), child: const Center(child: MgSpinner())));
+          child = KeyedSubtree(key: const ValueKey('loading'), child: PageSkeleton(kind: widget.skeleton, header: widget.skeletonHeader));
         } else if (snap.hasError) {
           child = KeyedSubtree(key: const ValueKey('error'), child: ErrorView(error: snap.error!, onRetry: _refresh, pluginId: widget.pluginId));
         } else {
@@ -60,7 +67,7 @@ class _LoaderState<T> extends State<Loader<T>> {
             ),
           );
         }
-        // Content fades in over the spinner, as covers fade over theirs.
+        // Content fades in over its skeleton, as covers fade over theirs.
         return AnimatedSwitcher(duration: MgMotion.artFade, switchInCurve: Curves.easeOut, child: child);
       },
     );

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/features/common/loader.dart';
+import 'package:mygo_mobile/features/common/skeletons.dart';
 import 'package:mygo_mobile/features/common/tracks.dart';
 import 'package:mygo_mobile/features/common/headers.dart';
 import 'package:mygo_mobile/ui/ui.dart';
@@ -20,6 +21,7 @@ class AlbumScreen extends StatelessWidget {
       title: album.name,
       child: Loader<AlbumPage>(
         pluginId: pluginId,
+        skeleton: SkeletonKind.collection,
         load: () => svc.music.album(pluginId, album.id),
         builder: (context, a, _) {
           final al = a.album.name.isEmpty ? album : a.album;

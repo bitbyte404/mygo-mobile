@@ -78,6 +78,25 @@ caps — Lucide-style. A few extra Lucide icons (history, shield, QR, archive, �
 MyGo's `ui.Snappy` spring is defined in the MyGo framework, not in this repository, so its exact
 parameters are unknown; a 240 ms / 0.15-bounce spring stands in for it.
 
+## Loading
+
+- **Skeletons, not spinners**, for anything that fills a page or a section: while a page's data loads,
+  `Loader` shows a `PageSkeleton` of that page's shape (`SkeletonKind`: home/browse — a heading, a
+  row of songs, rows of cards; tracks — a list under a heading; collection — the big playlist/album
+  header then songs; artist — a round header, top songs, albums; grid — cards). What sits over the
+  page regardless (the source switcher) is drawn over the skeleton too, so nothing jumps. A list
+  that is fetching more shows two song rows' shapes at its end (`SkeletonMoreRows`).
+- **Bones** (`MgBone`, `lib/ui/components/skeleton.dart`) are the placeholder fill: black at 5.5%
+  on the light theme, white at 7% on the dark one, white at 8% over Now Playing's backdrop.
+- **Shimmer** (`MgShimmer`): one soft band of light sweeps across every bone under it in a single
+  pass, 1600 ms per sweep, so the band crosses the page as one; it stands still when the system
+  asks for reduced motion.
+- When the data arrives the content fades in over its skeleton (`MgMotion.artFade`, 320 ms,
+  ease-out), as covers fade over their placeholders. An error replaces the skeleton with the error
+  view (sign in / settings / retry).
+- A spinner is kept only for an action in place: a button that is working, the mini player
+  buffering, a dialog.
+
 ## Mobile adaptations
 
 - **Width classes** (`widthClassOf`): compact < 600 dp: tab bar (Home, Search, 我的) + a floating

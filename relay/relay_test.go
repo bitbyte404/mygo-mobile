@@ -524,3 +524,55 @@ func TestStatic(t *testing.T) {
 		t.Fatalf("revalidate: %d", w.Code)
 	}
 }
+
+func TestStaticPWAFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html>"), 0o644)
+	os.WriteFile(filepath.Join(dir, "sw.js"), []byte("self.addEventListener('fetch',()=>{})"), 0o644)
+	os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"name":"x","start_url":"/"}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "apple-touch-icon.png"), []byte("\x89PNG"), 0o644)
+	os.WriteFile(filepath.Join(dir, "favicon.ico"), []byte("ico"), 0o644)
+	s := NewServer(Config{StaticDir: dir}, &Registry{entries: map[string]Entry{}}, http.DefaultTransport, false)
+	get := func(p string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest("GET", p, nil))
+		return w
+	}
+	w := get("/sw.js")
+	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/javascript") || w.Header().Get("Cache-Control") != "no-cache" || w.Header().Get("Service-Worker-Allowed") != "/" {
+		t.Errorf("sw.js: %d %v", w.Code, w.Header())
+	}
+	if w := get("/manifest.json"); w.Code != 200 || w.Header().Get("Content-Type") != "application/manifest+json" {
+		t.Errorf("manifest: %d %v", w.Code, w.Header())
+	}
+	if w := get("/apple-touch-icon.png"); w.Code != 200 || w.Header().Get("Content-Type") != "image/png" {
+		t.Errorf("apple-touch-icon: %d %v", w.Code, w.Header())
+	}
+	if w := get("/favicon.ico"); w.Code != 200 || w.Header().Get("Content-Type") != "image/x-icon" {
+		t.Errorf("favicon.ico: %d %v", w.Code, w.Header())
+	}
+}
+
+func TestClientLog(t *testing.T) {
+	s, _ := newTestServer(t, Config{Token: "s3cret"}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	body := `{"kind":"install","message":"line1\nline2","context":"standalone"}`
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("POST", "/api/log", strings.NewReader(body)))
+	if w.Code != 401 {
+		t.Fatalf("without token: %d", w.Code)
+	}
+	r := httptest.NewRequest("POST", "/api/log", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer s3cret")
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("log: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/api/log", nil)
+	r.Header.Set("Authorization", "Bearer s3cret")
+	s.ServeHTTP(w, r)
+	if w.Code != 405 {
+		t.Fatalf("GET: %d", w.Code)
+	}
+}

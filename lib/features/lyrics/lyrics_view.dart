@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:mygo_mobile/app/platform/platform.dart' show debugExpose;
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/ui/ui.dart';
@@ -23,7 +24,7 @@ class LyricsView extends StatefulWidget {
   State<LyricsView> createState() => _LyricsViewState();
 }
 
-class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateMixin {
+class _LyricsViewState extends State<LyricsView> with TickerProviderStateMixin {
   late Future<List<LyricLine>> _future;
   final _scroll = ScrollController();
   late final AnimationController _glide = AnimationController.unbounded(vsync: this)..addListener(_onGlide);
@@ -32,11 +33,24 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   final _contentKey = GlobalKey();
   int _current = -2;
 
+  // The line changes on the frame its time comes: checked every frame while
+  // playing, against the media clock (Player.positionNow), not only when a
+  // position report arrives (a few times a second, later on the web).
+  late final Ticker _frames = createTicker((_) => _onPosition());
+
+  void _syncFrames() {
+    final on = svc.player.playingN.value && !svc.player.legacyClock;
+    if (on && !_frames.isActive) _frames.start();
+    if (!on && _frames.isActive) _frames.stop();
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
     svc.player.positionN.addListener(_onPosition);
+    svc.player.playingN.addListener(_syncFrames);
+    _syncFrames();
   }
 
   void _load() {
@@ -62,6 +76,8 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
   @override
   void dispose() {
     svc.player.positionN.removeListener(_onPosition);
+    svc.player.playingN.removeListener(_syncFrames);
+    _frames.dispose();
     _glide.dispose();
     _scroll.dispose();
     super.dispose();
@@ -69,8 +85,10 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
 
   void _onPosition() {
     if (_lines.isEmpty || !mounted) return;
-    final i = lyricIndex(_lines, svc.player.positionNow.inMilliseconds);
+    final ms = svc.player.positionNow.inMilliseconds;
+    final i = lyricIndex(_lines, ms);
     if (i == _current) return;
+    debugExpose('lyric', {'index': i, 'start': i >= 0 ? _lines[i].start : -1, 'pos': ms, 'at': DateTime.now().millisecondsSinceEpoch});
     setState(() => _current = i);
     WidgetsBinding.instance.addPostFrameCallback((_) => _glideTo(i));
   }
@@ -103,7 +121,7 @@ class _LyricsViewState extends State<LyricsView> with SingleTickerProviderStateM
     return FutureBuilder<List<LyricLine>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.connectionState != ConnectionState.done) return _Skeleton(compact: widget.compact);
+        if (snap.connectionState != ConnectionState.done) return SkeletonLyrics(compact: widget.compact);
         if (snap.hasError) {
           return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(svc.describe(snap.error!), textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: 0.6)))));
         }
@@ -245,45 +263,3 @@ class _WordsState extends State<_Words> with SingleTickerProviderStateMixin {
     ]));
   }
 }
-
-/// While lyrics load: soft bars where lines will be, breathing.
-class _Skeleton extends StatefulWidget {
-  const _Skeleton({required this.compact});
-  final bool compact;
-
-  @override
-  State<_Skeleton> createState() => _SkeletonState();
-}
-
-class _SkeletonState extends State<_Skeleton> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const widths = [0.7, 0.5, 0.82, 0.6, 0.74];
-    return FadeTransition(
-      opacity: Tween(begin: 0.5, end: 1.0).animate(_c),
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(widget.compact ? 24 : 12, 40, 24, 0),
-        child: LayoutBuilder(
-          builder: (context, c) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            for (final w in widths)
-              Container(
-                margin: const EdgeInsets.only(bottom: 22),
-                width: c.maxWidth * w,
-                height: widget.compact ? 22 : 28,
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
-              ),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-

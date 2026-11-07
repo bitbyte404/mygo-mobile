@@ -42,4 +42,24 @@ void main() {
     expect(await c.of(t), lines);
     expect(n, 2);
   });
+
+  test('LRC [offset:] moves every line (positive: sooner)', () {
+    final l = parseLrc('[ti:x]\n[offset:500]\n[00:01.00]a\n[00:02.00]b');
+    expect(l.map((x) => x.start), [500, 1500]);
+    expect(parseLrc('[offset:-250]\n[00:01.00]a').single.start, 1250);
+    expect(parseLrc('[offset:5000]\n[00:01.00]a').single.start, 0);
+  });
+
+  test('an offset next to lines moves the words too', () {
+    final l = parseLyrics({
+      'offset': 200,
+      'lines': [
+        {'start': 1000, 'end': 2000, 'words': [{'start': 1000, 'end': 1500, 'text': 'a'}, {'start': 1500, 'end': 2000, 'text': 'b'}]},
+      ],
+    });
+    expect(l.single.start, 800);
+    expect(l.single.end, 1800);
+    expect(l.single.words.map((w) => w.start), [800, 1300]);
+    expect(l.single.text, 'ab');
+  });
 }
