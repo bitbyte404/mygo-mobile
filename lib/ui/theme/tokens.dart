@@ -229,6 +229,7 @@ class MgMotion {
   static const backdropFade = Duration(milliseconds: 700); // another song's backdrop
   static const npFade = Duration(milliseconds: 200); // Now Playing with reduced motion
   static const page = Duration(milliseconds: 360); // mobile: page push (website --ease)
+  static const tab = Duration(milliseconds: 180); // switching tabs: a cross-fade in place
 
   /// The website's `--ease: cubic-bezier(0.22, 1, 0.36, 1)` (website/src/styles.css).
   static const ease = Cubic(0.22, 1, 0.36, 1);

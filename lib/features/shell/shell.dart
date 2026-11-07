@@ -117,7 +117,7 @@ class _AppShellState extends State<AppShell> {
                   controller: _hero,
                   child: Navigator(
                     key: contentNavKey,
-                    pages: [MaterialPage<void>(key: ValueKey('${p?.id}/${shellState.dest}/${shellState.gen}'), child: PageStorage(bucket: _scroll, child: _root(p, entries, wc)))],
+                    pages: [_TabPage(key: ValueKey('${p?.id}/${shellState.dest}/${shellState.gen}'), child: PageStorage(bucket: _scroll, child: _root(p, entries, wc)))],
                     onDidRemovePage: (_) {},
                   ),
                 ),
@@ -458,4 +458,25 @@ class _PluginBroken extends StatelessWidget {
       ]),
     );
   }
+}
+
+
+/// A tab's root page. Switching tabs isn't going forward or back, so the
+/// pages cross-fade in place instead of sliding in from the right as a pushed
+/// page does (the tab bar, the rail and the sidebar all switch this way).
+class _TabPage extends Page<void> {
+  const _TabPage({required LocalKey super.key, required this.child});
+  final Widget child;
+
+  @override
+  Route<void> createRoute(BuildContext context) => PageRouteBuilder<void>(
+        settings: this,
+        transitionDuration: MgMotion.tab,
+        reverseTransitionDuration: MgMotion.tab,
+        pageBuilder: (context, _, _) => child,
+        transitionsBuilder: (context, animation, _, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+      );
 }
