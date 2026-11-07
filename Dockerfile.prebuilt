@@ -1,0 +1,18 @@
+# Packs files built elsewhere (fast to build on a small server):
+#   flutter build web --release --no-web-resources-cdn
+#   (cd relay && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o ../dist/mygo-relay .)
+#   docker build -f Dockerfile.prebuilt -t mygo-web .
+# Expects build/web/ and dist/mygo-relay in the build context.
+FROM busybox:stable-musl AS prep
+RUN mkdir -p /out/data
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY dist/mygo-relay /app/mygo-relay
+COPY build/web /app/web
+COPY --from=prep --chown=65532:65532 /out/data /data
+ENV LISTEN=:8080 RELAY_STATIC=/app/web RELAY_DATA=/data
+EXPOSE 8080
+VOLUME ["/data"]
+USER nonroot
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s CMD ["/app/mygo-relay", "-healthcheck"]
+ENTRYPOINT ["/app/mygo-relay"]

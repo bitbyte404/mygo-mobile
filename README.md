@@ -67,6 +67,19 @@ android/app/src/main/jniLibs/<abi>/libmygojs.so   prebuilt by native/build.sh an
 
 Plugin answers use the desktop app's JSON shapes (`internal/music/music.go`); times are milliseconds.
 
+## Web
+
+The same app runs in the browser, served with a small Go relay (plugin traffic, audio streams,
+cover art, GitHub installs) behind an access token: one container.
+
+```bash
+echo "RELAY_TOKEN=$(openssl rand -hex 24)" > .env && mkdir -p data && sudo chown 65532:65532 data
+docker compose up -d --build        # http://127.0.0.1:18090, put TLS in front
+```
+
+Plugins run in a Web Worker in the browser; their data stays in IndexedDB. Architecture, security
+model, env vars and deployment: [docs/WEB.md](docs/WEB.md). Screenshots: `screenshots/web.jpg`.
+
 ## Building
 
 Normal machine (x86_64 Linux/macOS with Flutter + Android SDK + NDK r28):

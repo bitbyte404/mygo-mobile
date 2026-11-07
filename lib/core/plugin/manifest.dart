@@ -1,6 +1,5 @@
 // A plugin's plugin.json, as the desktop app reads it (internal/plugin.Manifest).
 import 'dart:convert';
-import 'dart:io';
 
 class SettingDef {
   SettingDef(this.key, this.label, this.help, this.link);
@@ -75,8 +74,6 @@ class Manifest {
           raw['navigation'] is List ? (raw['navigation'] as List).whereType<Map>().map(NavItem.fromJson).toList() : [],
     );
   }
-
-  static Manifest load(String dir) => parse(File('$dir/plugin.json').readAsStringSync(), where: '$dir/plugin.json');
 
   Map<String, dynamic> toJson() => {
         'id': id,

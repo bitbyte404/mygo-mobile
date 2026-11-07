@@ -2,6 +2,7 @@
 // plumbing here (Navigator, text selection, dialogs' barrier): ripples are
 // off, every visible control is drawn by lib/ui/kit.dart.
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -29,7 +30,8 @@ ThemeData mgTheme(MgPalette p) {
     outline: p.faint,
     outlineVariant: p.hairline,
   );
-  final text = base.textTheme.apply(bodyColor: p.text, displayColor: p.text);
+  // Web: the CJK font bundled in web/fonts (see platform_web.dart loadAppFonts).
+  final text = base.textTheme.apply(bodyColor: p.text, displayColor: p.text, fontFamily: kIsWeb ? 'MgSans' : null);
   return base.copyWith(
     colorScheme: scheme,
     extensions: [p],

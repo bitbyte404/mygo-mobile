@@ -167,12 +167,12 @@ class _Toast extends StatelessWidget {
 /// A one-line text field in the search field's style: a soft rounded fill,
 /// a magnifier, a clear button.
 class MgTextField extends StatelessWidget {
-  const MgTextField({super.key, required this.controller, this.hint = '', this.icon, this.onChanged, this.onSubmitted, this.autofocus = false, this.action, this.focusNode, this.onClear, this.mono = false});
+  const MgTextField({super.key, required this.controller, this.hint = '', this.icon, this.onChanged, this.onSubmitted, this.autofocus = false, this.action, this.focusNode, this.onClear, this.mono = false, this.obscure = false});
   final TextEditingController controller;
   final String hint;
   final MgIconData? icon;
   final ValueChanged<String>? onChanged, onSubmitted;
-  final bool autofocus, mono;
+  final bool autofocus, mono, obscure;
   final TextInputAction? action;
   final FocusNode? focusNode;
   final VoidCallback? onClear;
@@ -193,6 +193,8 @@ class MgTextField extends StatelessWidget {
             autofocus: autofocus,
             onChanged: onChanged,
             onSubmitted: onSubmitted,
+            obscureText: obscure,
+            autocorrect: !obscure,
             textInputAction: action,
             cursorColor: p.accent,
             style: TextStyle(fontSize: 15, color: p.text, fontFamily: mono ? 'monospace' : null),

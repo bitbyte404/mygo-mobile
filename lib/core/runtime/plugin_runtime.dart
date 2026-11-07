@@ -3,9 +3,9 @@
 // implementation's business:
 //   - QuickJsRuntime (lib/core/runtime/quickjs): QuickJS-ng through dart:ffi,
 //     one background isolate per plugin. Android, iOS, desktop, tests.
-//   - web (lib/core/runtime/web): not implemented yet; a browser build would run
-//     the plugin in a Worker with the host API in JS, and relay fetch through a
-//     proxy for CORS. See docs/ARCHITECTURE.md.
+//   - WebWorkerRuntime (lib/core/runtime/web): the browser's JS engine, one
+//     module Worker per plugin (web/mygo/plugin_worker.js), storage in
+//     IndexedDB, fetch through the relay. See docs/WEB.md.
 import 'package:mygo_mobile/core/plugin/manifest.dart';
 
 export 'package:mygo_mobile/core/errors.dart';
@@ -21,8 +21,11 @@ class WorkerEvent {
 /// What a runtime needs to start a plugin.
 class PluginSpec {
   const PluginSpec({required this.dir, required this.dataRoot, required this.language, required this.platform, required this.arch, required this.prelude});
-  final String dir; // the plugin's folder (plugin.json + main)
-  final String dataRoot; // where plugins keep their storage, one folder each
+  // The plugin's folder (plugin.json + main) and the folder holding every
+  // plugin's data (this one's is dataRoot/<id>): real paths for QuickJS,
+  // Store paths ('plugins/<id>', 'plugin-data') in the browser.
+  final String dir;
+  final String dataRoot;
   final String language; // the listener's, 'zh-CN' or 'en'
   final String platform, arch; // what host.platform / host.arch say
   final String prelude; // assets/js/prelude.js: the JS side of the host API

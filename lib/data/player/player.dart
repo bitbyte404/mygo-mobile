@@ -43,6 +43,10 @@ class Player extends BaseAudioHandler with SeekHandler {
 
   final _player = AudioPlayer();
   StreamResolver? resolver;
+
+  /// Where the system's media controls load artwork from (the web build
+  /// sends it through its relay).
+  String Function(String url) artUrl = (url) => url;
   void Function(Track track)? onStarted;
   Future<List<Track>> Function(String source, String stationId)? stationNext;
 
@@ -203,7 +207,7 @@ class Player extends BaseAudioHandler with SeekHandler {
         artist: t.artistNames,
         album: t.album.name,
         duration: t.duration > 0 ? Duration(milliseconds: t.duration) : null,
-        artUri: t.album.imageUrl.isNotEmpty ? Uri.tryParse(t.album.imageUrl) : null,
+        artUri: t.album.imageUrl.isNotEmpty ? Uri.tryParse(artUrl(t.album.imageUrl)) : null,
       );
 
   Future<void> _playAt(int i) async {

@@ -1,0 +1,28 @@
+# RELAY_TOKEN comes from .env next to this file (never commit it):
+#   echo "RELAY_TOKEN=$(openssl rand -hex 24)" > .env
+#   mkdir -p data && sudo chown 65532:65532 data   # the container runs as nonroot
+#   docker compose up -d --build
+# Put a TLS reverse proxy in front of 127.0.0.1:18090 (see docs/WEB.md).
+services:
+  mygo-web:
+    build:
+      context: .
+      dockerfile: ${MYGO_DOCKERFILE:-Dockerfile}
+    image: mygo-web:latest
+    container_name: mygo-web
+    ports:
+      - "127.0.0.1:18090:8080"
+    environment:
+      RELAY_TOKEN: ${RELAY_TOKEN:?set RELAY_TOKEN in .env}
+      RELAY_SECURE_COOKIE: ${RELAY_SECURE_COOKIE:-1}
+      RELAY_REPOS: ${RELAY_REPOS:-}
+      RELAY_MEDIA_HOSTS: ${RELAY_MEDIA_HOSTS:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+    volumes:
+      - ./data:/data
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped

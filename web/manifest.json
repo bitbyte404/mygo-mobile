@@ -1,0 +1,19 @@
+{
+    "name": "MyGo 音乐",
+    "short_name": "MyGo 音乐",
+    "start_url": ".",
+    "scope": ".",
+    "display": "standalone",
+    "background_color": "#141416",
+    "theme_color": "#141416",
+    "description": "运行 MyGo Music 插件的网页播放器",
+    "lang": "zh-CN",
+    "orientation": "any",
+    "prefer_related_applications": false,
+    "icons": [
+        {"src": "icons/Icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "icons/Icon-512.png", "sizes": "512x512", "type": "image/png"},
+        {"src": "icons/Icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+        {"src": "icons/Icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+    ]
+}

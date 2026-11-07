@@ -33,6 +33,7 @@ import 'package:mygo_mobile/app/app.dart';
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/core/runtime/quickjs/quickjs_runtime.dart';
+import 'package:mygo_mobile/core/storage/file_store.dart';
 import 'package:mygo_mobile/data/player/player.dart';
 import 'package:mygo_mobile/data/plugins/plugin_manager.dart';
 import 'package:mygo_mobile/data/settings/app_state.dart';
@@ -257,9 +258,11 @@ void main() {
       Directory('${root.path}/plugin-data/kugou-lite').createSync(recursive: true);
       File('test/fixtures/kugou-data/kugou-lite/storage.json').copySync('${root.path}/plugin-data/kugou-lite/storage.json');
 
-      final app = AppState(root.path)..load(deviceLanguage: 'zh-CN');
+      final store = FileStore(root.path);
+      final app = AppState(store);
+      await app.load(deviceLanguage: 'zh-CN');
       final plugins = PluginManager(
-        root: root.path,
+        store: store,
         prelude: File('assets/js/prelude.js').readAsStringSync(),
         language: 'zh-CN',
         platform: 'android',

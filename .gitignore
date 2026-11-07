@@ -57,3 +57,10 @@ app.*.map.json
 
 # Screenshot PNGs are build output; the contact sheets are committed.
 /screenshots/*.png
+
+# Web deploy: secrets, relay data, prebuilt binaries
+.env
+/data/
+/relay/data/
+/dist/
+/relay/mygo-relay

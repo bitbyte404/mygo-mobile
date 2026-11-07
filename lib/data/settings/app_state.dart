@@ -1,15 +1,16 @@
-// The app's own settings and play history, kept as JSON in the app's folder.
-import 'dart:convert';
-import 'dart:io';
+// The app's own settings and play history, kept as JSON in the Store
+// (app-settings.json, history.json).
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import 'package:mygo_mobile/core/models/models.dart';
+import 'package:mygo_mobile/core/storage/store.dart';
 import 'package:mygo_mobile/l10n/strings.dart';
 
 class AppState extends ChangeNotifier {
-  AppState(this.root);
-  final String root;
+  AppState(this.store);
+  final Store store;
 
   String language = 'zh-CN';
   ThemeMode themeMode = ThemeMode.system;
@@ -20,14 +21,14 @@ class AppState extends ChangeNotifier {
 
   S get s => S(language);
 
-  File get _settingsFile => File('$root/app-settings.json');
-  File get _historyFile => File('$root/history.json');
+  static const _settingsFile = 'app-settings.json';
+  static const _historyFile = 'history.json';
 
-  void load({required String deviceLanguage}) {
+  Future<void> load({required String deviceLanguage}) async {
     language = deviceLanguage.startsWith('zh') ? 'zh-CN' : 'en';
     try {
-      if (_settingsFile.existsSync()) {
-        final m = jsonDecode(_settingsFile.readAsStringSync()) as Map;
+      final m = await store.readJson(_settingsFile);
+      if (m is Map) {
         language = '${m['language'] ?? language}';
         themeMode = ThemeMode.values.firstWhere((t) => t.name == m['theme'], orElse: () => ThemeMode.system);
         quality = '${m['quality'] ?? quality}';
@@ -35,21 +36,26 @@ class AppState extends ChangeNotifier {
       }
     } catch (_) {}
     try {
-      if (_historyFile.existsSync()) {
-        final l = jsonDecode(_historyFile.readAsStringSync()) as List;
-        history.addAll(l.whereType<Map>().map((m) => Track.fromJson(m)));
-      }
+      final l = await store.readJson(_historyFile);
+      if (l is List) history.addAll(l.whereType<Map>().map((m) => Track.fromJson(m)));
     } catch (_) {}
   }
 
-  void _save() {
-    _settingsFile.writeAsStringSync(jsonEncode({
-      'language': language,
-      'theme': themeMode.name,
-      'quality': quality,
-      'activePlugin': activePlugin,
-    }));
+  // Writes are chained so they land in order; the UI never waits for them.
+  Future<void> _writes = Future.value();
+  void _write(String path, Object? Function() value) {
+    _writes = _writes.then((_) => store.writeJson(path, value())).catchError((Object e) => debugPrint('save $path: $e'));
   }
+
+  /// Completes when every change so far is saved.
+  Future<void> flush() => _writes;
+
+  void _save() => _write(_settingsFile, () => {
+        'language': language,
+        'theme': themeMode.name,
+        'quality': quality,
+        'activePlugin': activePlugin,
+      });
 
   void setLanguage(String l) {
     language = l;
@@ -78,13 +84,14 @@ class AppState extends ChangeNotifier {
     history.removeWhere((x) => x.key == t.key);
     history.insert(0, t);
     if (history.length > historyMax) history.removeRange(historyMax, history.length);
-    _historyFile.writeAsStringSync(jsonEncode(history.map((t) => t.toJson()).toList()));
+    final snapshot = history.map((t) => t.toJson()).toList();
+    _write(_historyFile, () => snapshot);
     notifyListeners();
   }
 
   void clearHistory() {
     history.clear();
-    if (_historyFile.existsSync()) _historyFile.deleteSync();
+    _writes = _writes.then((_) => store.delete(_historyFile)).catchError((Object e) => debugPrint('clear history: $e'));
     notifyListeners();
   }
 }

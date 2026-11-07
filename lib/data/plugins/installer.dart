@@ -1,16 +1,21 @@
-// Installing plugins: from a GitHub repository (the default branch's zip from
-// codeload.github.com, plugin.json at the root or in one folder), or from a
-// zip on the device. Each install is two steps: [prepare] unpacks and reads
-// plugin.json so the app can show the permissions, then [PendingInstall.commit]
-// moves it into place. Updates are checked against the repository's
-// plugin.json on raw.githubusercontent.com: no GitHub API, so no rate limit.
+// Installing plugins: from a GitHub repository (the default branch's zip,
+// plugin.json at the root or in one folder), or from a zip file. Each install
+// is two steps: [Installer.prepareGitHub] / [Installer.prepareZipBytes]
+// unpack in memory and read plugin.json so the app can show the permissions,
+// then [PendingInstall.commit] writes it into the Store. Updates are checked
+// against the repository's plugin.json.
+//
+// Where GitHub is reached is a [GitHubEndpoints]: codeload.github.com and
+// raw.githubusercontent.com directly on the phone; through the relay in the
+// browser (codeload sends no CORS headers a page could use).
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:mygo_mobile/core/plugin/manifest.dart';
+import 'package:mygo_mobile/core/storage/store.dart';
 
 /// The MyGo Music version whose plugin API this app implements; a plugin's
 /// minAppVersion is compared with it.
@@ -24,18 +29,15 @@ class Origin {
   final String branch;
   final int installedAt;
 
+  static const fileName = '.mygo-origin.json';
+
   Map<String, dynamic> toJson() => {'kind': kind, 'repo': repo, 'branch': branch, 'installedAt': installedAt};
   factory Origin.fromJson(Map m) => Origin(
       kind: '${m['kind'] ?? 'zip'}', repo: '${m['repo'] ?? ''}', branch: '${m['branch'] ?? ''}', installedAt: (m['installedAt'] as num?)?.toInt() ?? 0);
 
-  static Origin? read(String pluginDir) {
-    final f = File('$pluginDir/.mygo-origin.json');
-    if (!f.existsSync()) return null;
-    try {
-      return Origin.fromJson(jsonDecode(f.readAsStringSync()) as Map);
-    } catch (_) {
-      return null;
-    }
+  static Future<Origin?> read(Store store, String pluginDir) async {
+    final m = await store.readJson('$pluginDir/$fileName');
+    return m is Map ? Origin.fromJson(m) : null;
   }
 }
 
@@ -46,12 +48,33 @@ class InstallError implements Exception {
   String toString() => message;
 }
 
+/// Where to download a repository's zip and plugin.json.
+class GitHubEndpoints {
+  const GitHubEndpoints({required this.zip, required this.manifest, this.headers = const {}});
+  final Uri Function(String repo, String branch) zip;
+  final Uri Function(String repo, String branch) manifest;
+  final Map<String, String> headers;
+
+  static final direct = GitHubEndpoints(
+    zip: (repo, branch) => Uri.parse('https://codeload.github.com/$repo/zip/refs/heads/$branch'),
+    manifest: (repo, branch) => Uri.parse('https://raw.githubusercontent.com/$repo/$branch/plugin.json'),
+    headers: const {'user-agent': 'mygo-mobile'},
+  );
+
+  /// Through the relay that serves the web app ([base] is the page's URL).
+  static GitHubEndpoints relay(Uri base) => GitHubEndpoints(
+        zip: (repo, branch) => base.resolve('api/github/zip').replace(queryParameters: {'repo': repo, 'branch': branch}),
+        manifest: (repo, branch) => base.resolve('api/github/manifest').replace(queryParameters: {'repo': repo, 'branch': branch}),
+      );
+}
+
 /// A plugin unpacked and read, not installed yet.
 class PendingInstall {
-  PendingInstall._(this.manifest, this._root, this._tmp, this.origin, this.previous);
+  PendingInstall._(this.manifest, this.files, this.origin, this.previous);
   final Manifest manifest;
-  final Directory _root; // the folder with plugin.json, inside _tmp
-  final Directory _tmp;
+
+  /// The plugin's files, by path relative to the folder holding plugin.json.
+  final Map<String, Uint8List> files;
   final Origin origin;
 
   /// The installed version's manifest, when this replaces one.
@@ -60,29 +83,34 @@ class PendingInstall {
   /// Hosts the new version reaches that the installed one didn't.
   List<String> get newHosts => previous == null ? const [] : manifest.network.where((h) => !previous!.network.contains(h)).toList();
 
-  Future<void> commit(String pluginsDir) async {
-    final dest = Directory('$pluginsDir/${manifest.id}');
-    final staging = Directory('$pluginsDir/.incoming-${manifest.id}');
-    if (staging.existsSync()) staging.deleteSync(recursive: true);
-    await _copyDir(_root, staging);
-    File('${staging.path}/.mygo-origin.json').writeAsStringSync(jsonEncode(origin.toJson()));
-    if (dest.existsSync()) dest.deleteSync(recursive: true);
-    staging.renameSync(dest.path);
+  /// Writes the plugin to `plugins/<id>`, replacing what was there: first into
+  /// a staging folder (which [PluginManager.init] clears if the app stops
+  /// halfway), then moved into place.
+  Future<void> commit(Store store, String pluginsDir) async {
+    final staging = '$pluginsDir/.incoming-${manifest.id}';
+    await store.delete(staging);
+    for (final e in files.entries) {
+      await store.write('$staging/${e.key}', e.value);
+    }
+    await store.writeJson('$staging/${Origin.fileName}', origin.toJson());
+    await store.move(staging, '$pluginsDir/${manifest.id}');
     discard();
   }
 
-  void discard() {
-    if (_tmp.existsSync()) _tmp.deleteSync(recursive: true);
-  }
+  void discard() => files.clear();
 }
 
 class Installer {
-  Installer({required this.pluginsDir, required this.tmpDir, HttpClient? http}) : _http = http ?? HttpClient();
+  Installer({required this.store, required this.pluginsDir, GitHubEndpoints? github, http.Client? client})
+      : github = github ?? GitHubEndpoints.direct,
+        _http = client ?? http.Client();
+  final Store store;
   final String pluginsDir;
-  final String tmpDir;
-  final HttpClient _http;
+  final GitHubEndpoints github;
+  final http.Client _http;
 
   static const maxZip = 64 << 20;
+  static const maxUnpacked = 256 << 20;
 
   /// owner/repo from what the listener typed: owner/repo, a github.com
   /// address (with .git, /tree/..., or a trailing slash), or a deep link's repo.
@@ -100,15 +128,18 @@ class Installer {
   }
 
   Future<Uint8List> _get(Uri url, {int limit = maxZip}) async {
-    final req = await _http.getUrl(url);
-    req.headers.set('user-agent', 'mygo-mobile');
-    final res = await req.close();
+    final res = await _http.send(http.Request('GET', url)..headers.addAll(github.headers));
     if (res.statusCode != 200) {
-      await res.drain<void>();
-      throw InstallError('HTTP ${res.statusCode}: $url');
+      var detail = '';
+      try {
+        final body = await res.stream.bytesToString();
+        final j = jsonDecode(body);
+        if (j is Map && j['error'] != null) detail = ' (${j['error']})';
+      } catch (_) {}
+      throw InstallError('HTTP ${res.statusCode}: $url$detail');
     }
     final b = BytesBuilder(copy: false);
-    await for (final chunk in res) {
+    await for (final chunk in res.stream) {
       b.add(chunk);
       if (b.length > limit) throw InstallError('too big: $url');
     }
@@ -121,7 +152,7 @@ class Installer {
     InstallError? last;
     for (final branch in const ['main', 'master']) {
       try {
-        final zip = await _get(Uri.parse('https://codeload.github.com/$repo/zip/refs/heads/$branch'));
+        final zip = await _get(github.zip(repo, branch));
         return await _prepareZip(zip, Origin(kind: 'github', repo: repo, branch: branch, installedAt: DateTime.now().millisecondsSinceEpoch));
       } on InstallError catch (e) {
         last = e;
@@ -131,70 +162,65 @@ class Installer {
     throw last ?? InstallError('could not download $repo');
   }
 
-  Future<PendingInstall> prepareZipFile(String path) async {
-    final f = File(path);
-    if (f.lengthSync() > maxZip) throw InstallError('the zip is too big');
-    return _prepareZip(await f.readAsBytes(), Origin(kind: 'zip', installedAt: DateTime.now().millisecondsSinceEpoch));
-  }
-
   Future<PendingInstall> prepareZipBytes(Uint8List bytes) async {
     if (bytes.length > maxZip) throw InstallError('the zip is too big');
     return _prepareZip(bytes, Origin(kind: 'zip', installedAt: DateTime.now().millisecondsSinceEpoch));
   }
 
   Future<PendingInstall> _prepareZip(Uint8List bytes, Origin origin) async {
-    final tmp = Directory('$tmpDir/install-${DateTime.now().microsecondsSinceEpoch}')..createSync(recursive: true);
+    final Archive archive;
     try {
-      final Archive archive;
-      try {
-        archive = ZipDecoder().decodeBytes(bytes);
-      } catch (e) {
-        throw InstallError('not a zip file');
-      }
-      var total = 0;
-      for (final entry in archive) {
-        final name = entry.name.replaceAll('\\', '/');
-        if (name.startsWith('/') || name.split('/').contains('..')) throw InstallError('unsafe path in zip: $name');
-        if (entry.isSymbolicLink) continue;
-        final out = '${tmp.path}/$name';
-        if (entry.isFile) {
-          total += entry.size;
-          if (total > 256 << 20) throw InstallError('the plugin is too big');
-          File(out)
-            ..createSync(recursive: true)
-            ..writeAsBytesSync(entry.content as List<int>);
-        } else {
-          Directory(out).createSync(recursive: true);
-        }
-      }
-      final root = _pluginRoot(tmp);
-      final manifest = Manifest.load(root.path);
-      if (manifest.minAppVersion.isNotEmpty && isNewerVersion(manifest.minAppVersion, kPluginApiVersion)) {
-        throw InstallError('needsNewerApp:${manifest.minAppVersion}');
-      }
-      if (!File('${root.path}/${manifest.main}').existsSync()) throw InstallError('${manifest.main} is missing');
-      final prevDir = '$pluginsDir/${manifest.id}';
-      Manifest? previous;
-      if (File('$prevDir/plugin.json').existsSync()) {
-        try {
-          previous = Manifest.load(prevDir);
-        } catch (_) {}
-      }
-      return PendingInstall._(manifest, root, tmp, origin, previous);
+      archive = ZipDecoder().decodeBytes(bytes);
     } catch (e) {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-      if (e is InstallError || e is FormatException) rethrow;
-      throw InstallError('$e');
+      throw InstallError('not a zip file');
     }
+    final names = <String, ArchiveFile>{};
+    for (final entry in archive) {
+      final name = entry.name.replaceAll('\\', '/');
+      if (name.startsWith('/') || name.split('/').contains('..')) throw InstallError('unsafe path in zip: $name');
+      if (entry.isSymbolicLink || !entry.isFile) continue;
+      names[name] = entry;
+    }
+    final root = pluginRoot(names.keys);
+    final files = <String, Uint8List>{};
+    var total = 0;
+    for (final e in names.entries) {
+      if (!e.key.startsWith(root)) continue;
+      final rel = e.key.substring(root.length);
+      if (rel.isEmpty || rel.split('/').any((p) => p == '.git' || p.startsWith('__MACOSX')) || rel == Origin.fileName) continue;
+      total += e.value.size;
+      if (total > maxUnpacked) throw InstallError('the plugin is too big');
+      files[rel] = e.value.readBytes() ?? Uint8List(0);
+    }
+    final mj = files['plugin.json'];
+    if (mj == null) throw InstallError('no plugin.json at the top of the zip');
+    final Manifest manifest;
+    try {
+      manifest = Manifest.parse(utf8.decode(mj), where: 'plugin.json');
+    } on FormatException catch (e) {
+      throw InstallError(e.message);
+    }
+    if (manifest.minAppVersion.isNotEmpty && isNewerVersion(manifest.minAppVersion, kPluginApiVersion)) {
+      throw InstallError('needsNewerApp:${manifest.minAppVersion}');
+    }
+    if (!files.containsKey(manifest.main)) throw InstallError('${manifest.main} is missing');
+    Manifest? previous;
+    final prev = await store.readString('$pluginsDir/${manifest.id}/plugin.json');
+    if (prev != null) {
+      try {
+        previous = Manifest.parse(prev);
+      } catch (_) {}
+    }
+    return PendingInstall._(manifest, files, origin, previous);
   }
 
-  /// The shallowest folder with a plugin.json: the zip's root, or the one
-  /// folder GitHub wraps a repository in.
-  static Directory _pluginRoot(Directory dir) {
-    if (File('${dir.path}/plugin.json').existsSync()) return dir;
-    final subs = dir.listSync().whereType<Directory>().where((d) => !d.path.split('/').last.startsWith('__MACOSX')).toList();
-    for (final d in subs) {
-      if (File('${d.path}/plugin.json').existsSync()) return d;
+  /// The prefix ('' or 'folder/') of the shallowest plugin.json: the zip's
+  /// root, or the one folder GitHub wraps a repository in.
+  static String pluginRoot(Iterable<String> names) {
+    if (names.contains('plugin.json')) return '';
+    for (final n in names) {
+      final parts = n.split('/');
+      if (parts.length == 2 && parts[1] == 'plugin.json' && !parts[0].startsWith('__MACOSX')) return '${parts[0]}/';
     }
     throw InstallError('no plugin.json at the top of the zip');
   }
@@ -204,24 +230,10 @@ class Installer {
     if (origin.kind != 'github' || origin.repo.isEmpty) return null;
     final branch = origin.branch.isEmpty ? 'main' : origin.branch;
     try {
-      final b = await _get(Uri.parse('https://raw.githubusercontent.com/${origin.repo}/$branch/plugin.json'), limit: 1 << 20);
-      final m = Manifest.parse(utf8.decode(b));
-      return m.version;
+      final b = await _get(github.manifest(origin.repo, branch), limit: 1 << 20);
+      return Manifest.parse(utf8.decode(b)).version;
     } catch (_) {
       return null;
-    }
-  }
-}
-
-Future<void> _copyDir(Directory from, Directory to) async {
-  to.createSync(recursive: true);
-  for (final e in from.listSync(recursive: false)) {
-    final name = e.path.split('/').last;
-    if (e is Directory) {
-      if (name == '.git') continue;
-      await _copyDir(e, Directory('${to.path}/$name'));
-    } else if (e is File) {
-      e.copySync('${to.path}/$name');
     }
   }
 }

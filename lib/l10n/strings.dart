@@ -7,6 +7,12 @@ class S {
 
   static const _zh = <String, String>{
     'appName': 'MyGo 音乐',
+    'relayTitle': '连接到服务器',
+    'relayTokenHelp': '这个 MyGo 音乐网页版的服务器需要访问令牌（部署时设置的 RELAY_TOKEN）。只需输入一次，浏览器会记住。',
+    'relayTokenHint': '访问令牌',
+    'relayTokenWrong': '令牌不对，请再试一次',
+    'relayUnreachable': '连不上服务器（中继）。网页版需要和 mygo-relay 一起部署。',
+    'continue': '继续',
     'home': '首页',
     'discover': '发现',
     'search': '搜索',
@@ -133,6 +139,12 @@ class S {
 
   static const _en = <String, String>{
     'appName': 'MyGo Music',
+    'relayTitle': 'Connect to the server',
+    'relayTokenHelp': 'This MyGo Music web server needs its access token (the RELAY_TOKEN set when it was deployed). Enter it once; this browser remembers it.',
+    'relayTokenHint': 'Access token',
+    'relayTokenWrong': 'That token is not right; try again',
+    'relayUnreachable': 'Can\'t reach the server (relay). The web app needs to be served by mygo-relay.',
+    'continue': 'Continue',
     'home': 'Home',
     'discover': 'Discover',
     'search': 'Search',

@@ -1,16 +1,26 @@
 // The installed plugins, each running on its own isolate, and which one the
 // app is showing.
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:mygo_mobile/core/plugin/manifest.dart';
 import 'package:mygo_mobile/core/runtime/plugin_runtime.dart';
+import 'package:mygo_mobile/core/storage/store.dart';
 
 import 'installer.dart';
+
+/// Told when plugins come and go. In the browser this registers them with
+/// the relay, whose allowlist is the installed plugins' network permissions.
+abstract interface class PluginRegistrar {
+  /// Before an install is committed; throws to stop it (the relay refused).
+  Future<void> register(Manifest manifest, Origin origin);
+  Future<void> unregister(String id);
+
+  /// At startup: make sure every installed plugin is registered.
+  Future<void> sync(List<InstalledPlugin> installed);
+}
 
 class SignInPrompt {
   SignInPrompt(this.qr, this.text);
@@ -19,7 +29,7 @@ class SignInPrompt {
 
 class InstalledPlugin {
   InstalledPlugin(this.dir, this.manifest, this.origin, this.locales);
-  final String dir;
+  final String dir; // in the Store: plugins/<id>
   Manifest manifest;
   Origin? origin;
   Map<String, String> locales; // English -> listener's language
@@ -65,26 +75,41 @@ class InstalledPlugin {
 }
 
 class PluginManager extends ChangeNotifier {
-  PluginManager({required this.root, required this.prelude, required String language, required this.platform, required this.arch, required this.runtime})
-      // ignore: prefer_initializing_formals
-      : _language = language;
+  PluginManager({
+    required this.store,
+    required this.prelude,
+    required String language,
+    required this.platform,
+    required this.arch,
+    required this.runtime,
+    GitHubEndpoints? github,
+    this.registrar,
+  })  : _language = language, // ignore: prefer_initializing_formals
+        _github = github; // ignore: prefer_initializing_formals
 
-  /// How plugins run on this platform (QuickJS/FFI on Android, iOS and desktop).
+  /// How plugins run on this platform (QuickJS/FFI on Android, iOS and
+  /// desktop; a Web Worker in the browser).
   final PluginRuntime runtime;
 
-  final String root; // app support dir
+  /// Where plugins and their data are kept (a folder, or IndexedDB).
+  final Store store;
   final String prelude;
   final String platform, arch;
+  final PluginRegistrar? registrar;
+  final GitHubEndpoints? _github;
   String _language;
 
-  String get pluginsDir => '$root/plugins';
-  String get dataRoot => '$root/plugin-data';
-  String get tmpDir => '$root/tmp';
+  static const pluginsDir = 'plugins';
+  static const dataRoot = 'plugin-data';
 
   final List<InstalledPlugin> plugins = [];
   String? _activeId;
   final signInPrompt = ValueNotifier<SignInPrompt?>(null);
-  late final Installer installer = Installer(pluginsDir: pluginsDir, tmpDir: tmpDir);
+
+  /// Something a plugin reported that the app should surface (the relay
+  /// asking for its token again).
+  final relayAuthNeeded = ValueNotifier<bool>(false);
+  late final Installer installer = Installer(store: store, pluginsDir: pluginsDir, github: _github);
 
   InstalledPlugin? get active {
     for (final p in plugins) {
@@ -108,48 +133,49 @@ class PluginManager extends ChangeNotifier {
   String? get activeId => active?.id;
 
   Future<void> init({String? activeId}) async {
-    Directory(pluginsDir).createSync(recursive: true);
-    Directory(dataRoot).createSync(recursive: true);
-    final tmp = Directory(tmpDir);
-    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-    tmp.createSync(recursive: true);
+    await store.delete('tmp'); // 0.1.x unpacked installs there
     _activeId = activeId;
-    for (final d in Directory(pluginsDir).listSync().whereType<Directory>()) {
-      final name = d.path.split('/').last;
+    final loaded = <InstalledPlugin>[];
+    for (final name in await store.list(pluginsDir)) {
       if (name.startsWith('.')) {
-        d.deleteSync(recursive: true);
+        await store.delete('$pluginsDir/$name'); // an install the app didn't finish
         continue;
       }
-      await _load(d.path);
+      final p = await _read('$pluginsDir/$name');
+      if (p != null) loaded.add(p);
     }
+    if (registrar != null) {
+      try {
+        await registrar!.sync(loaded);
+      } catch (e) {
+        debugPrint('plugin registrar: $e');
+      }
+    }
+    await Future.wait(loaded.map(_startWorker));
     plugins.sort((a, b) => a.name.compareTo(b.name));
     notifyListeners();
   }
 
-  Map<String, String> _readLocales(String dir) {
+  Future<Map<String, String>> _readLocales(String dir) async {
     if (_language == 'en') return {};
-    final f = File('$dir/locales/$_language.json');
-    if (!f.existsSync()) return {};
-    try {
-      final m = jsonDecode(f.readAsStringSync());
-      return m is Map ? m.map((k, v) => MapEntry('$k', '$v')) : {};
-    } catch (_) {
-      return {};
-    }
+    final m = await store.readJson('$dir/locales/$_language.json');
+    return m is Map ? m.map((k, v) => MapEntry('$k', '$v')) : {};
   }
 
-  Future<InstalledPlugin?> _load(String dir) async {
+  /// Reads an installed plugin (not started yet) and lists it.
+  Future<InstalledPlugin?> _read(String dir) async {
     Manifest m;
     try {
-      m = Manifest.load(dir);
+      final text = await store.readString('$dir/plugin.json');
+      if (text == null) return null;
+      m = Manifest.parse(text, where: '$dir/plugin.json');
     } catch (e) {
       debugPrint('plugin $dir: $e');
       return null;
     }
-    final p = InstalledPlugin(dir, m, Origin.read(dir), _readLocales(dir));
+    final p = InstalledPlugin(dir, m, await Origin.read(store, dir), await _readLocales(dir));
     plugins.removeWhere((x) => x.id == m.id);
     plugins.add(p);
-    await _startWorker(p);
     return p;
   }
 
@@ -158,7 +184,14 @@ class PluginManager extends ChangeNotifier {
     p.worker = null;
     p.error = null;
     try {
-      final w = await runtime.start(PluginSpec(dir: p.dir, dataRoot: dataRoot, language: _language, platform: platform, arch: arch, prelude: prelude));
+      final w = await runtime.start(PluginSpec(
+        dir: store.localPath(p.dir) ?? p.dir,
+        dataRoot: store.localPath(dataRoot) ?? dataRoot,
+        language: _language,
+        platform: platform,
+        arch: arch,
+        prelude: prelude,
+      ));
       p.worker = w;
       p.manifest = w.manifest;
       w.events.listen((e) => _onEvent(p, e));
@@ -176,23 +209,27 @@ class PluginManager extends ChangeNotifier {
         signInPrompt.value = SignInPrompt('${e.data['qr']}', '${e.data['text']}');
       case 'openURL':
         launchUrl(Uri.parse('${e.data['url']}'), mode: LaunchMode.externalApplication);
+      case 'relayAuth':
+        relayAuthNeeded.value = true;
     }
   }
 
   Future<void> setLanguage(String lang) async {
     _language = lang;
     for (final p in plugins) {
-      p.locales = _readLocales(p.dir);
+      p.locales = await _readLocales(p.dir);
       await p.worker?.setLanguage(lang);
     }
     notifyListeners();
   }
 
   Future<void> commit(PendingInstall pending) async {
+    await registrar?.register(pending.manifest, pending.origin);
     final old = byId(pending.manifest.id);
     old?.worker?.close();
-    await pending.commit(pluginsDir);
-    final p = await _load('$pluginsDir/${pending.manifest.id}');
+    await pending.commit(store, pluginsDir);
+    final p = await _read('$pluginsDir/${pending.manifest.id}');
+    if (p != null) await _startWorker(p);
     plugins.sort((a, b) => a.name.compareTo(b.name));
     if (p != null && (_activeId == null || plugins.length == 1)) _activeId = p.id;
     notifyListeners();
@@ -200,11 +237,14 @@ class PluginManager extends ChangeNotifier {
 
   Future<void> remove(InstalledPlugin p) async {
     p.worker?.close();
-    final dir = Directory(p.dir);
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
-    final data = Directory('$dataRoot/${p.id}');
-    if (data.existsSync()) data.deleteSync(recursive: true);
+    await store.delete(p.dir);
+    await store.delete('$dataRoot/${p.id}');
     plugins.remove(p);
+    try {
+      await registrar?.unregister(p.id);
+    } catch (e) {
+      debugPrint('plugin registrar: $e');
+    }
     if (_activeId == p.id) _activeId = plugins.isEmpty ? null : plugins.first.id;
     notifyListeners();
   }

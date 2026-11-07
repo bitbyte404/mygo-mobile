@@ -16,6 +16,8 @@ import 'package:pointycastle/export.dart' as pc;
 
 import 'package:mygo_mobile/core/errors.dart';
 import 'package:mygo_mobile/core/plugin/manifest.dart';
+import 'package:mygo_mobile/core/storage/file_plugin_data.dart';
+import 'package:mygo_mobile/core/storage/plugin_data.dart';
 
 import 'js_engine.dart';
 
@@ -50,6 +52,7 @@ class PluginHost {
 
   late Manifest manifest;
   late String dataDir;
+  late PluginDataStore _data;
   JsEngine? _engine;
   Set<String> exports = {};
   Map<String, String> _locales = {};
@@ -74,11 +77,11 @@ class PluginHost {
 
   /// Reads the plugin and runs its module.
   void start() {
-    manifest = Manifest.load(dir);
+    manifest = Manifest.parse(File('$dir/plugin.json').readAsStringSync(), where: '$dir/plugin.json');
     dataDir = '$dataRoot/${manifest.id}';
-    Directory(dataDir).createSync(recursive: true);
-    _storage = _readJson('storage.json') as Map<String, dynamic>? ?? {};
-    _settings = ((_readJson('settings.json') as Map?) ?? {}).map((k, v) => MapEntry('$k', '$v'));
+    _data = FilePluginData(dataDir);
+    _storage = _data.loadStorage();
+    _settings = _data.loadSettings();
     _loadLocales();
     final source = File('$dir/${manifest.main}').readAsStringSync();
     if (manifest.main.endsWith('.ts')) {
@@ -120,23 +123,6 @@ class PluginHost {
     return tr == null || tr.isEmpty ? text : tr;
   }
 
-  Object? _readJson(String name) {
-    final f = File('$dataDir/$name');
-    if (!f.existsSync()) return null;
-    try {
-      return jsonDecode(f.readAsStringSync());
-    } catch (_) {
-      return null;
-    }
-  }
-
-  void _writeJson(String name, Object value) {
-    final path = '$dataDir/$name';
-    final part = File('$path.part');
-    part.writeAsStringSync(jsonEncode(value), flush: true);
-    part.renameSync(path);
-  }
-
   String setting(String key) => _settings[key] ?? '';
   Map<String, String> get settings => Map.unmodifiable(_settings);
 
@@ -144,8 +130,7 @@ class PluginHost {
   /// exports that, as the desktop does.
   Future<void> setSetting(String key, String value) async {
     _settings[key] = value;
-    Directory(dataDir).createSync(recursive: true);
-    _writeJson('settings.json', _settings);
+    _data.saveSettings(_settings);
     if (running && exports.contains('setSetting')) {
       await call('setSetting', {'key': key, 'value': value});
     }
@@ -251,11 +236,11 @@ class PluginHost {
         return _storage.containsKey(k) ? _storage[k] : jsUndefined;
       case 'storage.set':
         _storage['${a['key']}'] = a['value'];
-        _writeJson('storage.json', _storage);
+        _data.saveStorage(_storage);
         return jsUndefined;
       case 'storage.remove':
         _storage.remove('${a['key']}');
-        _writeJson('storage.json', _storage);
+        _data.saveStorage(_storage);
         return jsUndefined;
       case 'setting':
         return setting('${a['key']}');
@@ -277,8 +262,7 @@ class PluginHost {
         if (name.isEmpty || norm == '.' || norm.startsWith('..') || norm.startsWith('/') || name.contains('..')) {
           throw JsError('not a folder of the plugin\'s data: $name');
         }
-        final d = Directory('$dataDir/$norm');
-        if (d.existsSync()) d.deleteSync(recursive: true);
+        _data.removeDir(norm);
         return jsUndefined;
       case 'openURL':
         final u = Uri.tryParse('${a['url']}');

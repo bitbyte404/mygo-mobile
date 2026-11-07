@@ -5,6 +5,14 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:mygo_mobile/ui/theme/mg_theme.dart';
 
+/// Where artwork URLs load from. The identity on the phone; the web build
+/// sends them through its relay (http CDNs on an https page, CORS for the
+/// pixels).
+abstract final class MgImages {
+  static String Function(String url) rewrite = _same;
+  static String _same(String url) => url;
+}
+
 /// An artwork, or a placeholder of the same size while it loads: the
 /// placeholder is the hover fill with a music note at 30%, and the art fades
 /// in over it in 320 ms (ui_kit.go cover / artIn).
@@ -32,7 +40,7 @@ class CoverArt extends StatelessWidget {
       Widget child = ph;
       if (url.isNotEmpty) {
         child = Image(
-          image: ResizeImage.resizeIfNeeded((side * dpr).round().clamp(48, 1200), null, NetworkImage(url)),
+          image: ResizeImage.resizeIfNeeded((side * dpr).round().clamp(48, 1200), null, NetworkImage(MgImages.rewrite(url))),
           width: side,
           height: side,
           fit: BoxFit.cover,
@@ -79,7 +87,7 @@ class ArtTint {
 
   static Future<Color?> _compute(String url) async {
     final done = Completer<ui.Image?>();
-    final stream = ResizeImage(NetworkImage(url), width: 24, height: 24, policy: ResizeImagePolicy.exact).resolve(ImageConfiguration.empty);
+    final stream = ResizeImage(NetworkImage(MgImages.rewrite(url)), width: 24, height: 24, policy: ResizeImagePolicy.exact).resolve(ImageConfiguration.empty);
     late final ImageStreamListener l;
     l = ImageStreamListener((info, _) {
       if (!done.isCompleted) done.complete(info.image.clone());

@@ -9,11 +9,12 @@ import 'package:mygo_mobile/data/library/music_repository.dart';
 import 'package:mygo_mobile/data/navigation.dart';
 import 'package:mygo_mobile/data/player/player.dart';
 import 'package:mygo_mobile/data/plugins/plugin_manager.dart';
+import 'package:mygo_mobile/data/relay/relay_client.dart';
 import 'package:mygo_mobile/data/settings/app_state.dart';
 import 'package:mygo_mobile/l10n/strings.dart';
 
 class Services {
-  Services({required this.app, required this.plugins, required this.player, MusicRepository? music}) : music = music ?? MusicRepository(plugins) {
+  Services({required this.app, required this.plugins, required this.player, MusicRepository? music, this.relay}) : music = music ?? MusicRepository(plugins) {
     likes = LikedStore(this.music);
   }
 
@@ -22,6 +23,9 @@ class Services {
   final Player player;
   final MusicRepository music;
   late final LikedStore likes;
+
+  /// The relay the web build talks through (null on the phone).
+  final RelayClient? relay;
 
   S get s => app.s;
 
@@ -50,7 +54,16 @@ class Services {
 
   /// Wires the player to the plugins: streams, "played", radio refills.
   void connectPlayer() {
-    player.resolver = (Track t) => music.stream(t, app.quality);
+    final r = relay;
+    player.resolver = r == null
+        ? (Track t) => music.stream(t, app.quality)
+        : (Track t) async {
+            // The browser can't send the plugin's headers or reach a plain
+            // http CDN from an https page: play through the relay's /stream.
+            final s = await music.stream(t, app.quality);
+            return StreamInfo(url: r.streamUrl(t.source, s.url, s.headers), type: s.type, quality: s.quality, bitRate: s.bitRate, size: s.size);
+          };
+    if (r != null) player.artUrl = r.imageUrl;
     player.onStarted = (Track t) {
       app.addHistory(t);
       if (music.can(t.source, 'played')) {
