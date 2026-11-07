@@ -124,6 +124,24 @@ exports, account, home, recent, search (all kinds), liked, a lossless stream who
 `fLaC`, standard stream, lyrics, comments, and that an unexported method fails as `unsupported`.
 Results go to `build/kugou_live_results.json`.
 
+### Screenshots (no device)
+
+`test/screenshots_test.dart` renders the real app (`MyGoApp`, dark theme, zh-CN) at phone size
+(360x780 dp @3x = 1080x2340 px) with live data from the signed-in kugou-lite plugin running in the
+app's own runtime, and walks it like a user: home, drawer, a playlist, search 周杰伦 晴天, track menu,
+album, 我喜欢, now playing (晴天), lyrics, plugins, 我的. PNGs go to `screenshots/`.
+
+```bash
+MYGOJS_LIB=native/build/host/libmygojs.so MYGO_HTTP_PROXY=127.0.0.1:3128 NO_PROXY=localhost,127.0.0.1 \
+  flutter test test/screenshots_test.dart
+```
+
+Fonts come from `--dart-define=CJK_FONT_DIR=...` (default `/workspace/work/tools/fonts`): Noto Sans SC
+Regular/Medium/Bold, preferring `emoji-merged/` copies with monochrome Noto Emoji glyphs added by
+`tools/fonts/add_emoji.py` (the test engine has no per-glyph font fallback, so emoji would be tofu).
+Material Icons come from the Flutter SDK. Cover art is fetched once with curl into `build/img-cache/`.
+Nothing plays: the "now playing" state is set on the player's notifiers, so position is 0:00.
+
 ## Known gaps / not yet verified
 
 Verified headlessly only (plugin runtime + kugou-lite live calls, release build and signing).
