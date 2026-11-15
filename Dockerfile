@@ -7,10 +7,18 @@ ARG FLUTTER_VERSION=3.47.9
 ARG GO_VERSION=1.27
 
 # ---- 1. Flutter web build (always on the build machine's arch) ----
-FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:${FLUTTER_VERSION} AS web
+# Flutter from its git tag: prebuilt Flutter images lag behind stable releases.
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS web
+ARG FLUTTER_VERSION
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git curl unzip xz-utils ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && git clone --depth 1 -b ${FLUTTER_VERSION} https://github.com/flutter/flutter.git /flutter
+ENV PATH=/flutter/bin:$PATH
+RUN flutter config --no-analytics >/dev/null && flutter precache --web
 WORKDIR /src
 COPY pubspec.yaml pubspec.lock ./
-RUN flutter config --no-analytics >/dev/null && flutter pub get
+RUN flutter pub get
 COPY . .
 RUN flutter build web --release --no-web-resources-cdn \
  && sh tool/stamp_sw.sh build/web \
