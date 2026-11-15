@@ -123,7 +123,7 @@ as a host. Workarounds, all under `/workspace/work/tools` (`source tools/env.sh`
   `artifacts/engine/android-*/linux-arm64/gen_snapshot` are shell wrappers running the x86_64 binary
   under qemu-user (`tools/x86`, extracted from Debian packages).
 - **aapt2**: an arm64 build (2.19), reached through `tools/aapt2-wrap/aapt2`, set by
-  `android.aapt2FromMavenOverride` in `android/gradle.properties`. The wrapper rewrites `--opt=value`
+  `android.aapt2FromMavenOverride` in `$GRADLE_USER_HOME/gradle.properties` (only on arm64 build hosts; CI on x86_64 uses the stock aapt2). The wrapper rewrites `--opt=value`
   into `--opt value`: AGP 9.1 calls `aapt2 optimize --resource-path-shortening-map=…`, which this
   aapt2 rejects (exit 1), and AGP then *silently* packages an APK with no `AndroidManifest.xml` or
   `resources.arsc`. `build_apk.sh` now fails the build if any APK lacks the manifest or `libmygojs.so`.
@@ -141,6 +141,15 @@ as a host. Workarounds, all under `/workspace/work/tools` (`source tools/env.sh`
   which compiles C with the NDK toolchain at build time.
 
 On a normal x86_64 host none of this is needed except the pin (harmless) and signing.
+
+## Releases
+
+Pushing a tag `v<version>` (it must match `version:` in `pubspec.yaml`) runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml): signed split APKs
+(arm64-v8a, armeabi-v7a, x86_64) and a `linux/amd64` + `linux/arm64` image
+`ghcr.io/bitbyte404/mygo-mobile:<version>` (also `latest`), then a GitHub Release with the APKs
+and `SHA256SUMS.txt`. The signing key comes from the repository secrets
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 
 ## Tests
 

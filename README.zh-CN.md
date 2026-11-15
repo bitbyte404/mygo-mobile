@@ -121,7 +121,7 @@ APK 的更新必须使用同一个密钥签名。
   `artifacts/engine/android-*/linux-arm64/gen_snapshot` 是 shell 包装脚本，通过 qemu-user
   运行 x86_64 二进制（`tools/x86`，从 Debian 软件包中提取）。
 - **aapt2**：一个 arm64 构建（2.19），通过 `tools/aapt2-wrap/aapt2` 调用，由
-  `android/gradle.properties` 中的 `android.aapt2FromMavenOverride` 指定。该包装脚本会把 `--opt=value`
+  `$GRADLE_USER_HOME/gradle.properties` 中的 `android.aapt2FromMavenOverride` 指定（仅 arm64 构建机需要；x86_64 上的 CI 用自带的 aapt2）。该包装脚本会把 `--opt=value`
   改写为 `--opt value`：AGP 9.1 会调用 `aapt2 optimize --resource-path-shortening-map=…`，而这个
   aapt2 会拒绝该参数（exit 1），随后 AGP 会*悄无声息地*打包出一个缺少 `AndroidManifest.xml` 和
   `resources.arsc` 的 APK。现在如果任何 APK 缺少 manifest 或 `libmygojs.so`，`build_apk.sh` 会让构建失败。
@@ -139,6 +139,15 @@ APK 的更新必须使用同一个密钥签名。
   它会在构建时用 NDK 工具链编译 C 代码。
 
 在普通的 x86_64 主机上，除了版本固定（无害）和签名之外，以上都不需要。
+
+## 发布
+
+推送标签 `v<版本号>`（须与 `pubspec.yaml` 的 `version:` 一致）会运行
+[`.github/workflows/release.yml`](.github/workflows/release.yml)：构建已签名的分架构 APK
+（arm64-v8a、armeabi-v7a、x86_64）和 `linux/amd64` + `linux/arm64` 镜像
+`ghcr.io/bitbyte404/mygo-mobile:<版本号>`（同时打 `latest`），再创建 GitHub Release 并附上 APK
+和 `SHA256SUMS.txt`。签名密钥来自仓库 Secrets：
+`ANDROID_KEYSTORE_BASE64`、`ANDROID_STORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
 
 ## 测试
 
