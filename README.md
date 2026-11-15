@@ -111,37 +111,6 @@ Both `android/key.properties` and `android/keystore/` are gitignored. Without `k
 the release build falls back to the debug key. **Back up the keystore** — updates to an installed
 APK must be signed with the same key.
 
-### The arm64 Linux build box (how the first APKs were built)
-
-The APKs were built on an aarch64 Linux sandbox, which Flutter/Android do not officially support
-as a host. Workarounds, all under `/workspace/work/tools` (`source tools/env.sh` first):
-
-- **Downloads through a local proxy**: `tools/localproxy.py` (127.0.0.1:3128) adds upstream auth;
-  `env.sh` points Java/Gradle at it via `JAVA_TOOL_OPTIONS`. `./build_apk.sh` starts it if needed.
-- **Flutter mirror**: `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`.
-- **gen_snapshot**: Flutter ships no linux-arm64 gen_snapshot for Android targets, so
-  `artifacts/engine/android-*/linux-arm64/gen_snapshot` are shell wrappers running the x86_64 binary
-  under qemu-user (`tools/x86`, extracted from Debian packages).
-- **aapt2**: an arm64 build (2.19), reached through `tools/aapt2-wrap/aapt2`, set by
-  `android.aapt2FromMavenOverride` in `$GRADLE_USER_HOME/gradle.properties` (only on arm64 build hosts; CI on x86_64 uses the stock aapt2). The wrapper rewrites `--opt=value`
-  into `--opt value`: AGP 9.1 calls `aapt2 optimize --resource-path-shortening-map=…`, which this
-  aapt2 rejects (exit 1), and AGP then *silently* packages an APK with no `AndroidManifest.xml` or
-  `resources.arsc`. `build_apk.sh` now fails the build if any APK lacks the manifest or `libmygojs.so`.
-  (On another machine, delete that `gradle.properties` line.)
-- **Memory**: 8 GB, no swap. Gradle heap is capped at 2 GB and the Kotlin daemon at 768 MB in
-  `android/gradle.properties`; with the old 3 GB heap the daemon was OOM-killed while the qemu
-  gen_snapshot runs. A clean release build takes ~25 min here (gen_snapshot under qemu dominates).
-- **NDK stand-in 28.2.13676358**: r28c sysroot/headers with toolchain binaries symlinked to the system
-  LLVM 19, so AGP accepts an installed NDK. No NDK compile happens in the Gradle build;
-  `libmygojs.so` is built by `native/build.sh` with system clang against the NDK sysroot.
-- **System LLVM 19** (`clang-19`, `lld-19`, `llvm-19` from Debian) for `native/build.sh`; the NDK stand-in's
-  toolchain links point at `/usr/lib/llvm-19/bin`. They live outside the workspace, so a fresh sandbox needs
-  them reinstalled (`apt-get install clang-19 lld-19 llvm-19` through the proxy).
-- **path_provider_android pinned to 2.2.23** (`dependency_overrides`): 2.3.x pulls in `package:jni`,
-  which compiles C with the NDK toolchain at build time.
-
-On a normal x86_64 host none of this is needed except the pin (harmless) and signing.
-
 ## Releases
 
 Pushing a tag `v<version>` (it must match `version:` in `pubspec.yaml`) runs
@@ -161,43 +130,14 @@ MYGOJS_LIB=native/build/host/libmygojs.so flutter test test/stack_stress_test.da
 ```
 
 Behind a proxy, give the plugin traffic an unauthenticated proxy with `MYGO_HTTP_PROXY=host:port`
-(here: the local forwarder, `127.0.0.1:3128`) and keep the test runner's own localhost WebSocket
+and keep the test runner's own localhost WebSocket
 off the proxy with `NO_PROXY=127.0.0.1,localhost`.
 
-The live test needs the network, a checkout of kugou-lite (`--dart-define=KUGOU_DIR=...`, default
-`/workspace/work/mygo-music-kugou-lite`) and a signed-in fixture at
+The live test needs the network, a checkout of kugou-lite (`--dart-define=KUGOU_DIR=...`) and a signed-in fixture at
 `test/fixtures/kugou-data/kugou-lite/storage.json` (gitignored — it holds a sign-in). It checks
 exports, account, home, recent, search (all kinds), liked, a lossless stream whose first bytes are
 `fLaC`, standard stream, lyrics, comments, and that an unexported method fails as `unsupported`.
 Results go to `build/kugou_live_results.json`.
-
-### Screenshots (no device)
-
-`test/screenshots_test.dart` renders the real app (`MyGoApp`, zh-CN) with live data from the
-signed-in kugou-lite plugin running in the app's own runtime, and walks it like a user:
-
-- phone, 1080x2340 px (360x780 dp @3), dark and light: home, search 周杰伦 晴天, an album (from a
-  result's song menu), 我喜欢, the mini player, Now Playing, lyrics (position pinned inside the song so
-  a line is lit), plugins (after a real update check);
-- tablet landscape, 2560x1600 px (1280x800 dp @2): home with the sidebar, an album, Now Playing with lyrics.
-
-The status bar (24 dp) and gesture bar (16 / 20 dp) are simulated: the view gets them as
-padding, as an edge-to-edge window does, and the test paints a fake status bar and gesture pill
-over the frame in the icon brightness the app last asked for (`SystemChrome.latestStyle`); what
-shows under them is the app's own content. PNGs go to `screenshots/` (contact sheets
-`screenshots/phone.jpg`, `screenshots/tablet.jpg`), a report with the overlay style per shot to
-`build/screenshot_report.json`.
-
-```bash
-MYGOJS_LIB=native/build/host/libmygojs.so MYGO_HTTP_PROXY=127.0.0.1:3128 NO_PROXY=localhost,127.0.0.1 \
-  flutter test test/screenshots_test.dart
-```
-
-Fonts come from `--dart-define=CJK_FONT_DIR=...` (default `/workspace/work/tools/fonts`): Noto Sans SC
-Regular/Medium/Bold, preferring `emoji-merged/` copies with monochrome Noto Emoji glyphs added by
-`tools/fonts/add_emoji.py` (the test engine has no per-glyph font fallback, so emoji would be tofu).
-Cover art is fetched once with curl into `build/img-cache/`. Nothing plays: the "now playing" state
-is set on the player's notifiers and its clock pinned with `Player.debugSetClock`.
 
 ## Known gaps / not yet verified
 
