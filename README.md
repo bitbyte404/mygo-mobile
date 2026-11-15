@@ -1,5 +1,7 @@
 # MyGo 音乐 (mygo_mobile)
 
+English | [简体中文](README.zh-CN.md)
+
 ![phone](screenshots/phone.jpg)
 
 A mobile (Flutter) music player that runs **MyGo Music plugins unchanged** — the same
