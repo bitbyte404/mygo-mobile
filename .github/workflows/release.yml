@@ -1,0 +1,157 @@
+# Push a tag like v0.2.5 -> split APKs (arm64-v8a / armeabi-v7a / x86_64),
+# a multi-arch Docker image on GHCR, and a GitHub Release with the APKs attached.
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   ANDROID_KEYSTORE_BASE64   base64 of android/keystore/release.jks
+#   ANDROID_STORE_PASSWORD    keystore password
+#   ANDROID_KEY_ALIAS         key alias
+#   ANDROID_KEY_PASSWORD      key password
+# Without them the APK job fails instead of shipping a debug-signed build
+# (a different key would stop existing installs from updating).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.2.5"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  FLUTTER_VERSION: "3.47.9"
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - id: v
+        name: Tag must match pubspec version
+        run: |
+          ver=$(grep -m1 '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//; s/+.*//')
+          echo "pubspec $ver, tag $TAG"
+          [ "v$ver" = "$TAG" ] || { echo "::error::tag $TAG does not match pubspec version $ver"; exit 1; }
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+  apk:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Signing key
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SP: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KP: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$SP" ] || [ -z "$KA" ] || [ -z "$KP" ]; then
+            echo "::error::Android signing secrets are missing"; exit 1
+          fi
+          mkdir -p android/keystore
+          echo "$KS" | base64 -d > android/keystore/release.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=../keystore/release.jks\n' \
+            "$SP" "$KP" "$KA" > android/key.properties
+      - run: flutter pub get
+      - run: flutter build apk --release --split-per-abi
+      - name: Check and rename APKs
+        run: |
+          set -e
+          mkdir -p dist
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            src=build/app/outputs/flutter-apk/app-$abi-release.apk
+            unzip -l "$src" | grep -q ' AndroidManifest.xml$'
+            unzip -l "$src" | grep -q "lib/$abi/libmygojs.so$"
+            cp "$src" "dist/mygo-mobile-${{ needs.check.outputs.version }}-$abi.apk"
+          done
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: dist/*
+          if-no-files-found: error
+
+  docker:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ needs.check.outputs.version }}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: FLUTTER_VERSION=${{ env.FLUTTER_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: [check, apk, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: dist
+      - name: Release notes
+        run: |
+          img="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          cat > notes.md <<NOTES
+          ## Android
+          - arm64-v8a: most phones
+          - armeabi-v7a: older 32-bit phones
+          - x86_64: emulators / x86 tablets
+
+          ## Docker (web + relay, linux/amd64 + linux/arm64)
+          \`\`\`
+          docker pull $img:${{ needs.check.outputs.version }}
+          \`\`\`
+          NOTES
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          body_path: notes.md
+          generate_release_notes: true
+          files: dist/*
