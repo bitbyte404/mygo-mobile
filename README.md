@@ -32,7 +32,15 @@ iOS can follow.
 - **Install plugins** from a GitHub repository (default-branch zip via codeload; `plugin.json` at the
   root or one folder deep) or from a local zip, with a permission review before install.
   Update checks read the repo's `plugin.json` from raw.githubusercontent.com (no GitHub API rate limit).
-  Deep link `mygo-music://install-plugin?repo=owner/repo` (as the desktop app answers) opens the installer.
+  Deep link `mygo-music://install-plugin?repo=owner/repo` (as the desktop app answers) opens the installer,
+  also when it cold-starts the app (the install waits until the app is ready). Every entry point uses the
+  same install flow: a failure says why (e.g. the plugin needs a newer app, an invalid permission, a
+  network error), and a success says so too.
+- **Plugin API matches desktop 0.1.25**: plugins with a `minAppVersion` up to 0.1.25 install. Covers
+  take a `{size}` placeholder, and a plugin can send request headers with covers and audio (dropped
+  when a redirect leaves for another host).
+- **Plugin settings** by their `plugin.json` type: text, password (masked), switch and select. Switches
+  and selects save as they change; text and passwords save with Save.
 - **Browse** — the plugin's home (under a greeting), pages, albums, artists, playlists, "see all" pages, stations.
   Pages are kept for the session: going back to a tab or a page shows it at once and refreshes it
   quietly when it is stale, keeping its scroll position (see docs/DESIGN.md, Loading).

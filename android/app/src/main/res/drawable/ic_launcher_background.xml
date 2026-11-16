@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The red of MyGo Music's icon, top to bottom (tool/icons/make_icons.py). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="270" android:startColor="#FFFE6C66" android:endColor="#FFE91E38"/>
+</shape>
