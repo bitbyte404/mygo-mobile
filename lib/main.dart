@@ -44,27 +44,14 @@ bool _systemIsLight() => WidgetsBinding.instance.platformDispatcher.platformBrig
 /// mygo-music://install-plugin?repo=owner/repo, as the desktop app answers.
 void _listenForLinks() {
   final links = AppLinks();
-  void handle(Uri uri) {
-    if (uri.scheme != 'mygo-music' || uri.host != 'install-plugin') return;
-    final repo = uri.queryParameters['repo'];
-    final ctx = navigatorKey.currentContext;
-    if (repo == null || ctx == null) return;
-    installFromRepo(ctx, repo);
-  }
-
-  links.uriLinkStream.listen(handle, onError: (_) {});
+  links.uriLinkStream.listen(installFromLink, onError: (_) {});
 }
 
 /// The browser's deep link is the page address: ?install=owner/repo (or
 /// ?repo=..., as the desktop's mygo-music://install-plugin link has it). And
 /// if the relay later refuses this browser (its token changed), ask again.
 void _webStart() {
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final q = Uri.base.queryParameters;
-    final repo = q['install'] ?? q['repo'];
-    final ctx = navigatorKey.currentContext;
-    if (repo != null && repo.isNotEmpty && ctx != null) installFromRepo(ctx, repo);
-  });
+  installFromQuery(Uri.base.queryParameters);
   final relay = svc.relay;
   if (relay == null) return;
   var asking = false;

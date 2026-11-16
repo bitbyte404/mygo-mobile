@@ -20,7 +20,6 @@ Future<Services> bootstrap({Future<void> Function(RelayClient relay)? relayGate}
   final relay = bits.relay;
   if (relay != null) {
     if (relayGate != null) await relayGate(relay);
-    MgImages.rewrite = relay.imageUrl;
   }
   final app = AppState(bits.store);
   await app.load(deviceLanguage: PlatformDispatcher.instance.locale.toLanguageTag());
@@ -53,6 +52,10 @@ Future<Services> bootstrap({Future<void> Function(RelayClient relay)? relayGate}
   }
   exposeClock(() => player.positionNow);
   final services = Services(app: app, plugins: plugins, player: player, relay: relay)..connectPlayer();
+  MgImages.request = (url, px) {
+    final r = services.imageRequest(url, px: px);
+    return (url: r.url, headers: r.headers.isEmpty ? null : r.headers);
+  };
   await plugins.init(activeId: app.activePlugin);
   return services;
 }

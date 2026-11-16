@@ -113,7 +113,7 @@ Timer? _toastTimer;
 /// A short message in a pill above the foot of the screen (MyGo's c.Toast),
 /// clear of the mini player and the tab bar, gone after 3 s.
 void toast(BuildContext context, String msg, {Duration duration = const Duration(seconds: 3)}) {
-  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  final overlay = _rootOverlay(context);
   if (overlay == null) return;
   _toastEntry?.remove();
   _toastTimer?.cancel();
@@ -126,6 +126,16 @@ void toast(BuildContext context, String msg, {Duration duration = const Duration
       _toastEntry = null;
     }
   });
+}
+
+/// The root Overlay from [context]: one above it, or the Overlay or
+/// Navigator [context] is itself (a navigator key's context, as code
+/// outside any page has).
+OverlayState? _rootOverlay(BuildContext context) {
+  final above = Overlay.maybeOf(context, rootOverlay: true);
+  if (above != null) return above;
+  if (context is StatefulElement && context.state is OverlayState) return context.state as OverlayState;
+  return Navigator.maybeOf(context, rootNavigator: true)?.overlay;
 }
 
 class _Toast extends StatelessWidget {

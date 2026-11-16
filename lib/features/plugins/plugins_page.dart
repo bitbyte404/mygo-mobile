@@ -125,7 +125,7 @@ class _PluginTile extends StatelessWidget {
             TextAction(s['permissions'], onTap: () => showMgDialog<void>(
                   context,
                   title: '${p.name} · ${s['permissions']}',
-                  content: SingleChildScrollView(child: PermissionsView(manifest: p.manifest)),
+                  content: SingleChildScrollView(child: PermissionsView(manifest: p.manifest, strings: s)),
                   actions: (ctx) => [PillButton(primary: true, label: s['ok'], onTap: () => Navigator.pop(ctx))],
                 )),
             if (p.manifest.settings.isNotEmpty) TextAction(s['settings'], onTap: () => pushPage(context, PluginSettingsPage(plugin: p))),
@@ -142,7 +142,7 @@ class _PluginTile extends StatelessWidget {
   Future<void> _update(BuildContext context) async {
     final origin = plugin.origin;
     if (origin == null || origin.kind != 'github') return;
-    await installFromRepo(context, origin.repo);
+    await installPlugin(GitHubSource(origin.repo));
   }
 }
 

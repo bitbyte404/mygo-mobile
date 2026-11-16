@@ -17,10 +17,6 @@ import 'package:http/http.dart' as http;
 import 'package:mygo_mobile/core/plugin/manifest.dart';
 import 'package:mygo_mobile/core/storage/store.dart';
 
-/// The MyGo Music version whose plugin API this app implements; a plugin's
-/// minAppVersion is compared with it.
-const kPluginApiVersion = '0.1.18';
-
 /// Where a plugin came from, kept next to it as .mygo-origin.json.
 class Origin {
   Origin({required this.kind, this.repo = '', this.branch = '', this.installedAt = 0});
@@ -41,9 +37,37 @@ class Origin {
   }
 }
 
+/// What went wrong with an install, for the message the listener gets
+/// (features/plugins/install_flow.dart installErrorText).
+enum InstallErrorKind {
+  /// What was given isn't owner/repo or a GitHub address.
+  badRepo,
+
+  /// The download failed: no answer, a refused connection, an HTTP error.
+  network,
+
+  /// The repository (or its main/master branch) isn't there.
+  notFound,
+
+  /// The zip or its plugin.json isn't a plugin this app can read.
+  invalidPlugin,
+
+  /// plugin.json's minAppVersion is newer than this app's plugin API
+  /// ([InstallError.detail] is that version).
+  needsNewerApp,
+  tooBig,
+  timeout,
+
+  /// Writing it, or starting it once written, failed.
+  start,
+  other,
+}
+
 class InstallError implements Exception {
-  InstallError(this.message);
+  InstallError(this.message, {this.kind = InstallErrorKind.other, this.detail = ''});
   final String message;
+  final InstallErrorKind kind;
+  final String detail;
   @override
   String toString() => message;
 }
@@ -119,11 +143,11 @@ class Installer {
     s = s.replaceFirst(RegExp(r'^(https?://)?(www\.)?github\.com/', caseSensitive: false), '');
     s = s.replaceFirst(RegExp(r'^git@github\.com:', caseSensitive: false), '');
     final parts = s.split('/').where((p) => p.isNotEmpty).toList();
-    if (parts.length < 2) throw InstallError('not a GitHub repository: $input');
+    if (parts.length < 2) throw InstallError('not a GitHub repository: $input', kind: InstallErrorKind.badRepo);
     final owner = parts[0];
     final repo = parts[1].replaceFirst(RegExp(r'\.git$'), '');
     final ok = RegExp(r'^[A-Za-z0-9_.-]+$');
-    if (!ok.hasMatch(owner) || !ok.hasMatch(repo)) throw InstallError('not a GitHub repository: $input');
+    if (!ok.hasMatch(owner) || !ok.hasMatch(repo)) throw InstallError('not a GitHub repository: $input', kind: InstallErrorKind.badRepo);
     return '$owner/$repo';
   }
 
@@ -131,12 +155,23 @@ class Installer {
   static const connectTimeout = Duration(seconds: 30);
   static const downloadTimeout = Duration(seconds: 90);
 
-  Future<Uint8List> _get(Uri url, {int limit = maxZip}) => _getUntimed(url, limit: limit).timeout(downloadTimeout, onTimeout: () => throw InstallError('download timed out: $url'));
+  Future<Uint8List> _get(Uri url, {int limit = maxZip}) => _getUntimed(url, limit: limit).timeout(downloadTimeout, onTimeout: () => throw InstallError('download timed out: $url', kind: InstallErrorKind.timeout));
 
   Future<Uint8List> _getUntimed(Uri url, {int limit = maxZip}) async {
+    try {
+      return await _download(url, limit);
+    } on InstallError {
+      rethrow;
+    } catch (e) {
+      // A refused connection, a DNS failure, a reset: the network's fault.
+      throw InstallError('could not reach $url: $e', kind: InstallErrorKind.network);
+    }
+  }
+
+  Future<Uint8List> _download(Uri url, int limit) async {
     final res = await _http
         .send(http.Request('GET', url)..headers.addAll(github.headers))
-        .timeout(connectTimeout, onTimeout: () => throw InstallError('no answer from $url'));
+        .timeout(connectTimeout, onTimeout: () => throw InstallError('no answer from $url', kind: InstallErrorKind.network));
     if (res.statusCode != 200) {
       var detail = '';
       try {
@@ -144,12 +179,12 @@ class Installer {
         final j = jsonDecode(body);
         if (j is Map && j['error'] != null) detail = ' (${j['error']})';
       } catch (_) {}
-      throw InstallError('HTTP ${res.statusCode}: $url$detail');
+      throw InstallError('HTTP ${res.statusCode}: $url$detail', kind: res.statusCode == 404 ? InstallErrorKind.notFound : InstallErrorKind.network);
     }
     final b = BytesBuilder(copy: false);
     await for (final chunk in res.stream) {
       b.add(chunk);
-      if (b.length > limit) throw InstallError('too big: $url');
+      if (b.length > limit) throw InstallError('too big: $url', kind: InstallErrorKind.tooBig);
     }
     return b.takeBytes();
   }
@@ -164,14 +199,14 @@ class Installer {
         return await _prepareZip(zip, Origin(kind: 'github', repo: repo, branch: branch, installedAt: DateTime.now().millisecondsSinceEpoch));
       } on InstallError catch (e) {
         last = e;
-        if (!e.message.startsWith('HTTP 404')) rethrow;
+        if (e.kind != InstallErrorKind.notFound) rethrow;
       }
     }
-    throw last ?? InstallError('could not download $repo');
+    throw last ?? InstallError('could not download $repo', kind: InstallErrorKind.network);
   }
 
   Future<PendingInstall> prepareZipBytes(Uint8List bytes) async {
-    if (bytes.length > maxZip) throw InstallError('the zip is too big');
+    if (bytes.length > maxZip) throw InstallError('the zip is too big', kind: InstallErrorKind.tooBig);
     return _prepareZip(bytes, Origin(kind: 'zip', installedAt: DateTime.now().millisecondsSinceEpoch));
   }
 
@@ -180,12 +215,12 @@ class Installer {
     try {
       archive = ZipDecoder().decodeBytes(bytes);
     } catch (e) {
-      throw InstallError('not a zip file');
+      throw InstallError('not a zip file', kind: InstallErrorKind.invalidPlugin);
     }
     final names = <String, ArchiveFile>{};
     for (final entry in archive) {
       final name = entry.name.replaceAll('\\', '/');
-      if (name.startsWith('/') || name.split('/').contains('..')) throw InstallError('unsafe path in zip: $name');
+      if (name.startsWith('/') || name.split('/').contains('..')) throw InstallError('unsafe path in zip: $name', kind: InstallErrorKind.invalidPlugin);
       if (entry.isSymbolicLink || !entry.isFile) continue;
       names[name] = entry;
     }
@@ -197,27 +232,27 @@ class Installer {
       final rel = e.key.substring(root.length);
       if (rel.isEmpty || rel.split('/').any((p) => p == '.git' || p.startsWith('__MACOSX')) || rel == Origin.fileName) continue;
       total += e.value.size;
-      if (total > maxUnpacked) throw InstallError('the plugin is too big');
+      if (total > maxUnpacked) throw InstallError('the plugin is too big', kind: InstallErrorKind.tooBig);
       files[rel] = e.value.readBytes() ?? Uint8List(0);
     }
     final mj = files['plugin.json'];
-    if (mj == null) throw InstallError('no plugin.json at the top of the zip');
+    if (mj == null) throw InstallError('no plugin.json at the top of the zip', kind: InstallErrorKind.invalidPlugin);
     final Manifest manifest;
     try {
       manifest = Manifest.parse(utf8.decode(mj), where: 'plugin.json');
     } on FormatException catch (e) {
-      throw InstallError(e.message);
+      throw InstallError(e.message, kind: InstallErrorKind.invalidPlugin);
     }
-    if (manifest.minAppVersion.isNotEmpty && isNewerVersion(manifest.minAppVersion, kPluginApiVersion)) {
-      throw InstallError('needsNewerApp:${manifest.minAppVersion}');
+    if (needsNewerApp(manifest.minAppVersion)) {
+      throw InstallError('needs MyGo Music ${manifest.minAppVersion} (this app has $kPluginApiVersion)', kind: InstallErrorKind.needsNewerApp, detail: manifest.minAppVersion);
     }
-    if (!files.containsKey(manifest.main)) throw InstallError('${manifest.main} is missing');
+    if (!files.containsKey(manifest.main)) throw InstallError('${manifest.main} is missing', kind: InstallErrorKind.invalidPlugin);
     Manifest? previous;
     final String? prev;
     try {
       prev = await store.readString('$pluginsDir/${manifest.id}/plugin.json').timeout(const Duration(seconds: 20));
     } catch (e) {
-      throw InstallError('could not read the installed plugins: $e');
+      throw InstallError('could not read the installed plugins: $e', kind: InstallErrorKind.start);
     }
     if (prev != null) {
       try {
@@ -235,7 +270,7 @@ class Installer {
       final parts = n.split('/');
       if (parts.length == 2 && parts[1] == 'plugin.json' && !parts[0].startsWith('__MACOSX')) return '${parts[0]}/';
     }
-    throw InstallError('no plugin.json at the top of the zip');
+    throw InstallError('no plugin.json at the top of the zip', kind: InstallErrorKind.invalidPlugin);
   }
 
   /// The version in the repository's plugin.json now, or null if unknown.

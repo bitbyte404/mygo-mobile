@@ -439,7 +439,7 @@ class _NoPlugins extends StatelessWidget {
         padding: pageInsets(context),
         child: MgEmpty(icon: MgIcons.plug, title: s['noPlugins'], message: s['noPluginsHint'], actions: [
           PillButton(primary: true, icon: MgIcons.plus, label: s['addPlugin'], onTap: () => addPlugin(context)),
-          PillButton(icon: MgIcons.code, label: 'bitbyte404/mygo-music-kugou-lite', onTap: () => installFromRepo(context, 'bitbyte404/mygo-music-kugou-lite')),
+          PillButton(icon: MgIcons.code, label: 'bitbyte404/mygo-music-kugou-lite', onTap: () => installPlugin(const GitHubSource('bitbyte404/mygo-music-kugou-lite'))),
         ]),
       ),
     );
