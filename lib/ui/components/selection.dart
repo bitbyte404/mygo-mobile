@@ -97,3 +97,53 @@ class MgChip extends StatelessWidget {
     );
   }
 }
+
+/// An on/off switch as AppKit draws one (MyGo's ui.Switch): a capsule in the
+/// accent color when on, gray when off, its knob sliding across in 180 ms.
+class MgSwitch extends StatelessWidget {
+  const MgSwitch({super.key, required this.value, required this.onChanged, this.enabled = true, this.semanticLabel});
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final bool enabled;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.mg;
+    final off = p.dark ? const Color.fromRGBO(255, 255, 255, 0.16) : const Color.fromRGBO(0, 0, 0, 0.12);
+    return Semantics(
+      toggled: value,
+      enabled: enabled,
+      label: semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? () => onChanged(!value) : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.5,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            width: 44,
+            height: 26,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(color: value ? p.accent : off, borderRadius: BorderRadius.circular(13)),
+            child: AnimatedAlign(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Color.fromRGBO(0, 0, 0, 0.25), blurRadius: 2, offset: Offset(0, 1))],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -37,6 +37,11 @@ abstract interface class PluginConnection {
   Manifest get manifest;
   Set<String> get exports;
   Map<String, String> get settings;
+
+  /// What the plugin keeps with host.storage under [key], for the keys its
+  /// requestHeaders name ({storage:key}; MediaRequests.storageKeys), kept in
+  /// step as the plugin changes them. Null for any other key.
+  Object? storageValue(String key);
   Stream<WorkerEvent> get events;
   bool can(String method);
 

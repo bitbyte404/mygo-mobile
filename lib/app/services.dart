@@ -8,6 +8,8 @@ import 'package:mygo_mobile/data/library/liked_store.dart';
 import 'package:mygo_mobile/data/library/music_repository.dart';
 import 'package:mygo_mobile/data/navigation.dart';
 import 'package:mygo_mobile/data/player/player.dart';
+import 'package:mygo_mobile/data/player/stream_redirects.dart';
+import 'package:mygo_mobile/core/plugin/media_request.dart';
 import 'package:mygo_mobile/data/plugins/plugin_manager.dart';
 import 'package:mygo_mobile/data/relay/relay_client.dart';
 import 'package:mygo_mobile/data/settings/app_state.dart';
@@ -52,18 +54,29 @@ class Services {
     );
   }
 
+  /// How a picture is fetched, shown [px] pixels across: the plugins'
+  /// rules (core/plugin/media_request.dart), through the relay on the web.
+  MediaRequest imageRequest(String url, {int? px}) {
+    final r = plugins.imageRequest(url, px: px);
+    final relay = this.relay;
+    return relay == null ? r : MediaRequest(relay.imageUrl(r));
+  }
+
   /// Wires the player to the plugins: streams, "played", radio refills.
-  void connectPlayer() {
+  void connectPlayer({StreamRedirects? redirects}) {
     final r = relay;
-    player.resolver = r == null
-        ? (Track t) => music.stream(t, app.quality)
-        : (Track t) async {
-            // The browser can't send the plugin's headers or reach a plain
-            // http CDN from an https page: play through the relay's /stream.
-            final s = await music.stream(t, app.quality);
-            return StreamInfo(url: r.streamUrl(t.source, s.url, s.headers), type: s.type, quality: s.quality, bitRate: s.bitRate, size: s.size);
-          };
-    if (r != null) player.artUrl = r.imageUrl;
+    final follow = redirects ?? StreamRedirects();
+    player.resolver = (Track t) async {
+      final s = await music.stream(t, app.quality);
+      final req = plugins.streamRequest(t.source, s.url, s.headers);
+      // The browser can't send the plugin's headers or reach a plain http
+      // CDN from an https page: it plays through the relay's /stream, which
+      // follows redirects keeping the headers to their host. On the phone
+      // the redirects are followed here, for the same reason.
+      final out = r == null ? await follow.resolve(req) : MediaRequest(r.streamUrl(t.source, req));
+      return StreamInfo(url: out.url, headers: out.headers, type: s.type, quality: s.quality, bitRate: s.bitRate, size: s.size);
+    };
+    player.artRequest = (url) => imageRequest(url, px: MediaRequests.placeholderSize);
     player.onStarted = (Track t) {
       app.addHistory(t);
       if (music.can(t.source, 'played')) {

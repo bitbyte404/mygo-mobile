@@ -14,7 +14,7 @@ import 'plugin_host.dart';
 /// isolate holds the PluginHost and its JsEngine. Only plain messages cross
 /// (maps of strings, numbers, lists; errors as {code, message}).
 class PluginWorker implements PluginConnection {
-  PluginWorker._(this._isolate, this._send, this._receive, this.manifest, this.exports, this.settings);
+  PluginWorker._(this._isolate, this._send, this._receive, this.manifest, this.exports, this.settings, this._storage);
 
   final Isolate _isolate;
   final SendPort _send;
@@ -25,6 +25,9 @@ class PluginWorker implements PluginConnection {
   final Set<String> exports;
   @override
   final Map<String, String> settings;
+  final Map<String, Object?> _storage;
+  @override
+  Object? storageValue(String key) => _storage[key];
   final _events = StreamController<WorkerEvent>.broadcast();
   final Map<int, Completer<Object?>> _pending = {};
   int _next = 1;
@@ -80,7 +83,9 @@ class PluginWorker implements PluginConnection {
       receive,
       Manifest.parse(ready['manifest'] as String),
       (ready['exports'] as List).cast<String>().toSet(),
-      (ready['settings'] as Map).cast<String, String>(),
+      // A copy: a map sent from the isolate can arrive unmodifiable.
+      Map<String, String>.of((ready['settings'] as Map).cast<String, String>()),
+      Map<String, Object?>.of((ready['storage'] as Map).cast<String, Object?>()),
     );
     for (final m in early) {
       worker._onMessage(m);
@@ -98,6 +103,9 @@ class PluginWorker implements PluginConnection {
         } else {
           c.completeError(PluginError('${m['code'] ?? ''}', '${m['message'] ?? ''}'));
         }
+      case 'event' when m['event'] == 'storageValue':
+        final d = m['data'] as Map;
+        _storage['${d['key']}'] = d['value'];
       case 'event':
         _events.add(WorkerEvent('${m['event']}', (m['data'] as Map).cast<String, dynamic>()));
     }
@@ -174,6 +182,7 @@ void _main(Map init) {
     'manifest': _manifestJson(host.manifest),
     'exports': host.exports.toList(),
     'settings': host.settings,
+    'storage': host.watchedStorage,
   });
   inbox.listen((msg) async {
     final m = msg as Map;

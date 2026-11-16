@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 import 'package:mygo_mobile/core/models/models.dart';
+import 'package:mygo_mobile/core/plugin/media_request.dart';
 
 enum Repeat { off, all, one }
 
@@ -44,9 +45,9 @@ class Player extends BaseAudioHandler with SeekHandler {
   final _player = AudioPlayer();
   StreamResolver? resolver;
 
-  /// Where the system's media controls load artwork from (the web build
-  /// sends it through its relay).
-  String Function(String url) artUrl = (url) => url;
+  /// How the system's media controls load a track's artwork (set by
+  /// Services: the plugins' {size} and requestHeaders, the relay on the web).
+  MediaRequest Function(String url) artRequest = (url) => MediaRequest(MediaRequests.sizedImageUrl(url));
   void Function(Track track)? onStarted;
   Future<List<Track>> Function(String source, String stationId)? stationNext;
 
@@ -219,14 +220,18 @@ class Player extends BaseAudioHandler with SeekHandler {
     queue.add([for (final t in tracks.value) _item(t)]);
   }
 
-  MediaItem _item(Track t) => MediaItem(
-        id: t.key,
-        title: t.name,
-        artist: t.artistNames,
-        album: t.album.name,
-        duration: t.duration > 0 ? Duration(milliseconds: t.duration) : null,
-        artUri: t.album.imageUrl.isNotEmpty ? Uri.tryParse(artUrl(t.album.imageUrl)) : null,
-      );
+  MediaItem _item(Track t) {
+    final art = t.album.imageUrl.isNotEmpty ? artRequest(t.album.imageUrl) : null;
+    return MediaItem(
+      id: t.key,
+      title: t.name,
+      artist: t.artistNames,
+      album: t.album.name,
+      duration: t.duration > 0 ? Duration(milliseconds: t.duration) : null,
+      artUri: art == null ? null : Uri.tryParse(art.url),
+      artHeaders: art == null || art.headers.isEmpty ? null : art.headers,
+    );
+  }
 
   Future<void> _playAt(int i) async {
     if (i < 0 || i >= tracks.value.length) return;

@@ -282,7 +282,7 @@ class _Backdrop extends StatelessWidget {
               if (url.isNotEmpty)
                 Opacity(
                   opacity: 0.1,
-                  child: Image(image: ResizeImage(NetworkImage(url), width: 48, height: 48), fit: BoxFit.cover, filterQuality: FilterQuality.medium, gaplessPlayback: true, errorBuilder: (_, _, _) => const SizedBox()),
+                  child: Image(image: ResizeImage(MgImages.provider(url, 48), width: 48, height: 48), fit: BoxFit.cover, filterQuality: FilterQuality.medium, gaplessPlayback: true, errorBuilder: (_, _, _) => const SizedBox()),
                 ),
               const DecoratedBox(
                 decoration: BoxDecoration(

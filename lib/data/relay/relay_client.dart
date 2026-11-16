@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:mygo_mobile/core/plugin/manifest.dart';
+import 'package:mygo_mobile/core/plugin/media_request.dart';
 import 'package:mygo_mobile/data/plugins/installer.dart';
 import 'package:mygo_mobile/data/plugins/plugin_manager.dart';
 
@@ -103,20 +104,20 @@ class RelayClient implements PluginRegistrar {
     }
   }
 
-  /// Where the browser plays [url] from: the relay's /stream (Range passed
-  /// through, the plugin's stream headers applied upstream).
-  String streamUrl(String pluginId, String url, Map<String, String> headers) {
-    final q = {'plugin': pluginId, 'url': url};
-    if (headers.isNotEmpty) {
-      q['h'] = base64.encode(utf8.encode(jsonEncode([for (final e in headers.entries) [e.key, e.value]])));
-    }
-    return _u('stream', q).toString();
-  }
+  /// Where the browser plays [r] (a plugin's stream, its headers decided by
+  /// MediaRequests) from: the relay's /stream, Range passed through, the
+  /// headers sent upstream and dropped on a redirect to another host.
+  String streamUrl(String pluginId, MediaRequest r) => _u('stream', {'plugin': pluginId, 'url': r.url, ..._headerParam(r.headers)}).toString();
 
   /// Artwork through the relay's /img (http CDNs on an https page, and the
-  /// pixels CanvasKit needs without CORS headers from the CDN).
-  String imageUrl(String url) {
-    if (!(url.startsWith('http://') || url.startsWith('https://'))) return url;
-    return _u('img', {'url': url}).toString();
+  /// pixels CanvasKit needs without CORS headers from the CDN), with the
+  /// headers MediaRequests gave it.
+  String imageUrl(MediaRequest r) {
+    if (!(r.url.startsWith('http://') || r.url.startsWith('https://'))) return r.url;
+    return _u('img', {'url': r.url, ..._headerParam(r.headers)}).toString();
   }
+
+  static Map<String, String> _headerParam(Map<String, String> headers) => headers.isEmpty
+      ? const {}
+      : {'h': base64.encode(utf8.encode(jsonEncode([for (final e in headers.entries) [e.key, e.value]])))};
 }

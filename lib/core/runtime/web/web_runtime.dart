@@ -41,6 +41,9 @@ class WebPluginConnection implements PluginConnection {
   late Set<String> exports;
   @override
   late Map<String, String> settings;
+  Map<String, Object?> _storage = {};
+  @override
+  Object? storageValue(String key) => _storage[key];
   final _events = StreamController<WorkerEvent>.broadcast();
   final Map<int, Completer<Object?>> _pending = {};
   final Map<int, Completer<void>> _pongs = {};
@@ -62,6 +65,7 @@ class WebPluginConnection implements PluginConnection {
     c.manifest = Manifest.parse(ready['manifest'] as String);
     c.exports = (ready['exports'] as List).cast<String>().toSet();
     c.settings = (ready['settings'] as Map).map((k, v) => MapEntry('$k', '$v'));
+    c._storage = ((ready['storage'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v));
     return c;
   }
 
@@ -106,6 +110,8 @@ class WebPluginConnection implements PluginConnection {
         }
       case 'pong':
         _pongs.remove(m['id'])?.complete();
+      case 'storageValue':
+        _storage['${m['key']}'] = m['value'];
       case 'event':
         if (!_events.isClosed) _events.add(WorkerEvent('${m['event']}', (m['data'] as Map).cast<String, dynamic>()));
     }

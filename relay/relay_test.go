@@ -376,6 +376,61 @@ func TestImg(t *testing.T) {
 	}
 }
 
+// A plugin's headers (h) go with its pictures and streams, on to a host
+// below the one first asked, and not to another host a redirect leads to
+// (MyGo Music 0.1.19).
+func TestMediaHeadersStayOnTheirHost(t *testing.T) {
+	saw := map[string]string{}
+	s, _ := newTestServer(t, Config{}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		saw[r.Host+r.URL.Path] = r.Header.Get("Cookie") + "|" + r.Header.Get("X-Token")
+		switch r.Host + r.URL.Path {
+		case "media.example.com/a.m4a":
+			http.Redirect(w, r, "http://cdn.media.example.com/a.m4a", 302)
+			return
+		case "cdn.media.example.com/a.m4a":
+			http.Redirect(w, r, "http://other.example.net/a.m4a", 302)
+			return
+		case "media.example.com/cover.jpg":
+			http.Redirect(w, r, "http://img.example.net/cover.jpg", 302)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, ".jpg") {
+			w.Header().Set("Content-Type", "image/jpeg")
+		} else {
+			w.Header().Set("Content-Type", "audio/mp4")
+		}
+		w.Write([]byte{1, 2, 3})
+	}))
+	register(t, s, "p", "media.example.com", "*.example.net")
+	h := url.QueryEscape(b64([][]string{{"Cookie", "music-token=t1"}, {"X-Token", "abc"}}))
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/stream?plugin=p&url="+url.QueryEscape("http://media.example.com/a.m4a")+"&h="+h, nil))
+	if w.Code != 200 {
+		t.Fatalf("stream: %d %s", w.Code, w.Body)
+	}
+	if got := saw["media.example.com/a.m4a"]; got != "music-token=t1|abc" {
+		t.Errorf("first host got %q", got)
+	}
+	// Go's own rule drops Cookie on any host change; X-Token still goes below the host.
+	if got := saw["cdn.media.example.com/a.m4a"]; got != "|abc" {
+		t.Errorf("a host below got %q", got)
+	}
+	if got := saw["other.example.net/a.m4a"]; got != "|" {
+		t.Errorf("another host got %q", got)
+	}
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/img?plugin=p&url="+url.QueryEscape("http://media.example.com/cover.jpg")+"&h="+h, nil))
+	if w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("img: %d %s", w.Code, w.Body)
+	}
+	if got := saw["media.example.com/cover.jpg"]; got != "music-token=t1|abc" {
+		t.Errorf("picture's host got %q", got)
+	}
+	if got := saw["img.example.net/cover.jpg"]; got != "|" {
+		t.Errorf("picture's redirect got %q", got)
+	}
+}
+
 // ---------- SSRF ----------
 
 func TestPrivateAddressesBlocked(t *testing.T) {

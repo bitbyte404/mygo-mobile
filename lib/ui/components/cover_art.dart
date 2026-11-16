@@ -5,12 +5,23 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:mygo_mobile/ui/theme/mg_theme.dart';
 
-/// Where artwork URLs load from. The identity on the phone; the web build
-/// sends them through its relay (http CDNs on an https page, CORS for the
-/// pixels).
+/// How to fetch a picture: the URL and the headers to send.
+typedef MgImageRequest = ({String url, Map<String, String>? headers});
+
+/// Where artwork loads from. The design system knows nothing of plugins:
+/// the app sets [request] (app/bootstrap.dart) to the plugins' rules (a
+/// {size} filled in with the pixels it is shown at, a plugin's
+/// requestHeaders; core/plugin/media_request.dart), and on the web to the
+/// relay's /img. Unset, a URL is fetched as it is.
 abstract final class MgImages {
-  static String Function(String url) rewrite = _same;
-  static String _same(String url) => url;
+  static MgImageRequest Function(String url, int px) request = _same;
+  static MgImageRequest _same(String url, int px) => (url: url, headers: null);
+
+  /// The image to show [url] at [px] pixels across.
+  static ImageProvider provider(String url, int px) {
+    final r = request(url, px);
+    return NetworkImage(r.url, headers: r.headers);
+  }
 }
 
 /// An artwork, or a placeholder of the same size while it loads: the
@@ -40,7 +51,10 @@ class CoverArt extends StatelessWidget {
       Widget child = ph;
       if (url.isNotEmpty) {
         child = Image(
-          image: ResizeImage.resizeIfNeeded((side * dpr).round().clamp(48, 1200), null, NetworkImage(MgImages.rewrite(url))),
+          image: () {
+            final px = (side * dpr).round().clamp(48, 1200);
+            return ResizeImage.resizeIfNeeded(px, null, MgImages.provider(url, px));
+          }(),
           width: side,
           height: side,
           fit: BoxFit.cover,
@@ -75,6 +89,10 @@ class ArtTint {
 
   static Color? cached(String url) => _cache[url];
 
+  /// The size the tint's picture is fetched at, where its URL lets the
+  /// app choose: small, it is read at 24 pixels.
+  static const tintSize = 120;
+
   static Future<Color?> of(String url) {
     if (url.isEmpty) return Future.value(null);
     if (_cache.containsKey(url)) return Future.value(_cache[url]);
@@ -87,7 +105,7 @@ class ArtTint {
 
   static Future<Color?> _compute(String url) async {
     final done = Completer<ui.Image?>();
-    final stream = ResizeImage(NetworkImage(MgImages.rewrite(url)), width: 24, height: 24, policy: ResizeImagePolicy.exact).resolve(ImageConfiguration.empty);
+    final stream = ResizeImage(MgImages.provider(url, tintSize), width: 24, height: 24, policy: ResizeImagePolicy.exact).resolve(ImageConfiguration.empty);
     late final ImageStreamListener l;
     l = ImageStreamListener((info, _) {
       if (!done.isCompleted) done.complete(info.image.clone());

@@ -16,6 +16,7 @@ import 'package:pointycastle/export.dart' as pc;
 
 import 'package:mygo_mobile/core/errors.dart';
 import 'package:mygo_mobile/core/plugin/manifest.dart';
+import 'package:mygo_mobile/core/plugin/media_request.dart';
 import 'package:mygo_mobile/core/storage/file_plugin_data.dart';
 import 'package:mygo_mobile/core/storage/plugin_data.dart';
 
@@ -58,6 +59,11 @@ class PluginHost {
   Map<String, String> _locales = {};
   Map<String, dynamic> _storage = {};
   Map<String, String> _settings = {};
+
+  /// The storage keys plugin.json's requestHeaders name: their values are
+  /// reported as 'storageValue' events as they change, for the app's own
+  /// requests (core/plugin/media_request.dart).
+  Set<String> _watched = {};
   final Map<int, Timer> _timers = {};
   final Map<int, Completer<Object?>> _calls = {};
   int _nextCall = 1;
@@ -82,6 +88,7 @@ class PluginHost {
     _data = FilePluginData(dataDir);
     _storage = _data.loadStorage();
     _settings = _data.loadSettings();
+    _watched = MediaRequests.storageKeys(manifest);
     _loadLocales();
     final source = File('$dir/${manifest.main}').readAsStringSync();
     if (manifest.main.endsWith('.ts')) {
@@ -124,6 +131,13 @@ class PluginHost {
   }
 
   String setting(String key) => _settings[key] ?? '';
+
+  /// The current values of the storage keys requestHeaders name.
+  Map<String, Object?> get watchedStorage => {for (final k in _watched) k: _storage[k]};
+
+  void _storageChanged(String key) {
+    if (_watched.contains(key)) onEvent?.call('storageValue', {'key': key, 'value': _storage[key]});
+  }
   Map<String, String> get settings => Map.unmodifiable(_settings);
 
   /// Keeps the setting, and tells a running plugin through setSetting if it
@@ -237,10 +251,12 @@ class PluginHost {
       case 'storage.set':
         _storage['${a['key']}'] = a['value'];
         _data.saveStorage(_storage);
+        _storageChanged('${a['key']}');
         return jsUndefined;
       case 'storage.remove':
         _storage.remove('${a['key']}');
         _data.saveStorage(_storage);
+        _storageChanged('${a['key']}');
         return jsUndefined;
       case 'setting':
         return setting('${a['key']}');

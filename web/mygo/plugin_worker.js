@@ -44,6 +44,26 @@ let language = "zh-CN";
 let locales = {};
 let storage = {};
 let settings = {};
+// Storage keys plugin.json's requestHeaders name ({storage:key}): the app
+// sends their values with its own requests for pictures and audio, so it is
+// told of them as they change (lib/core/plugin/media_request.dart).
+let watched = new Set();
+function watchStorageKeys() {
+  watched = new Set();
+  for (const r of Array.isArray(manifest.requestHeaders) ? manifest.requestHeaders : []) {
+    for (const v of Object.values((r && r.headers) || {})) {
+      for (const x of String(v).matchAll(/\{storage:([^{}]+)\}/g)) watched.add(x[1]);
+    }
+  }
+}
+function watchedValues() {
+  const out = {};
+  for (const k of watched) out[k] = Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null;
+  return out;
+}
+function storageChanged(k) {
+  if (watched.has(k)) post({ type: "storageValue", key: k, value: Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null });
+}
 let exportsNs = {};
 
 async function readText(path) {
@@ -224,10 +244,12 @@ function makeHost(info) {
         const v = JSON.stringify(value);
         storage[String(key)] = v === undefined ? null : JSON.parse(v);
         persist("storage.json", storage);
+        storageChanged(String(key));
       },
       remove: (key) => {
         delete storage[String(key)];
         persist("storage.json", storage);
+        storageChanged(String(key));
       },
     },
     setting: (key) => settings[String(key)] ?? "",
@@ -306,6 +328,7 @@ async function init(m) {
   const st = (await readJson(`${dataDir}/settings.json`)) || {};
   settings = {};
   for (const k of Object.keys(st)) settings[k] = String(st[k]);
+  watchStorageKeys();
   await loadLocales();
   const src = await readText(`${pluginDir}/${manifest.main}`);
   if (src === null) throw new Error(`${manifest.main} is missing`);
@@ -318,7 +341,7 @@ async function init(m) {
     URL.revokeObjectURL(url);
   }
   const exportNames = Object.keys(exportsNs).filter((k) => typeof exportsNs[k] === "function");
-  return { manifest: mj, exports: exportNames, settings };
+  return { manifest: mj, exports: exportNames, settings, storage: watchedValues() };
 }
 
 self.onmessage = async (e) => {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mygo_mobile/app/services.dart';
-import 'package:mygo_mobile/data/plugins/installer.dart';
+import 'package:mygo_mobile/core/plugin/plugin_api.dart';
 import 'package:mygo_mobile/ui/ui.dart';
 
 /// The app's settings, as segmented controls (ui_kit.go segmented).
@@ -69,7 +69,7 @@ class SettingsPage extends StatelessWidget {
             group(
               MgIcons.info,
               s['about'],
-              Text('${s['aboutText']}\nPlugin API: MyGo Music $kPluginApiVersion · JS: QuickJS-ng', style: TextStyle(fontSize: 13, height: 1.5, color: p.muted)),
+              Text('${s['aboutText']}\nPlugin API: MyGo Music $kPluginApiVersion · JS: ${svc.plugins.runtime.name}', style: TextStyle(fontSize: 13, height: 1.5, color: p.muted)),
             ),
           ]);
         },

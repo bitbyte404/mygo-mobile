@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:mygo_mobile/core/plugin/manifest.dart';
+import 'package:mygo_mobile/core/plugin/media_request.dart';
 import 'package:mygo_mobile/core/runtime/plugin_runtime.dart';
 import 'package:mygo_mobile/core/storage/store.dart';
 
@@ -51,6 +52,9 @@ class InstalledPlugin {
     if (w == null) throw PluginError('', error ?? 'the plugin isn\'t running');
     await w.setSetting(key, value);
   }
+  /// The values its requestHeaders can name, as they are now.
+  PluginValues get values => PluginValues(setting: (k) => settings[k], storage: (k) => worker?.storageValue(k));
+
   String t(String text) => (locales[text]?.isNotEmpty ?? false) ? locales[text]! : text;
   String get name => t(manifest.name);
 
@@ -233,7 +237,7 @@ class PluginManager extends ChangeNotifier {
     onStep?.call('write');
     await pending.commit(store, pluginsDir);
     final p = await _read('$pluginsDir/${pending.manifest.id}');
-    if (p == null) throw InstallError('the plugin was written but could not be read back');
+    if (p == null) throw InstallError('the plugin was written but could not be read back', kind: InstallErrorKind.start);
     onStep?.call('start');
     await _startWorker(p);
     plugins.sort((a, b) => a.name.compareTo(b.name));
@@ -266,6 +270,28 @@ class PluginManager extends ChangeNotifier {
       p.latestVersion = await installer.latestVersion(p.origin!);
     }));
     notifyListeners();
+  }
+
+  /// How to fetch a picture shown [px] pixels across: {size} filled in, and
+  /// the headers of the first running plugin whose requestHeaders are for its
+  /// host (a picture's URL doesn't say whose it is; the desktop asks the
+  /// plugins that are on the same way).
+  MediaRequest imageRequest(String url, {int? px}) {
+    final sized = MediaRequests.sizedImageUrl(url, px);
+    for (final p in plugins) {
+      if (!p.running) continue;
+      final h = MediaRequests.headersFor(p.manifest, sized, MediaKind.image, p.values);
+      if (h.isNotEmpty) return MediaRequest(sized, h);
+    }
+    return MediaRequest(sized);
+  }
+
+  /// How to fetch a song's audio that plugin [pluginId] answered [stream]
+  /// for: its own headers first, then its requestHeaders for audio.
+  MediaRequest streamRequest(String pluginId, String url, Map<String, String> streamHeaders) {
+    final p = byId(pluginId);
+    if (p == null) return MediaRequest(url, streamHeaders);
+    return MediaRequests.audio(p.manifest, url, streamHeaders: streamHeaders, values: p.values);
   }
 
   @override

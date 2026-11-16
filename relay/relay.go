@@ -385,9 +385,13 @@ type hostRule func(host string) bool
 
 // do sends a request, following redirects itself (when follow is set) and
 // checking every hop against the rule. It answers the last response, the
-// final URL and whether a redirect was followed.
-func (s *Server) do(ctx context.Context, method string, u *url.URL, hdr http.Header, body []byte, follow bool, allowed hostRule) (*http.Response, *url.URL, bool, error) {
+// final URL and whether a redirect was followed. The headers named in stay
+// (a plugin's, for its media) go only to the host first asked or one below
+// it: a redirect elsewhere drops them, as MyGo Music's HeadersStay does and
+// lib/core/plugin/media_request.dart headersAfterRedirect says.
+func (s *Server) do(ctx context.Context, method string, u *url.URL, hdr http.Header, body []byte, follow bool, allowed hostRule, stay ...string) (*http.Response, *url.URL, bool, error) {
 	redirected := false
+	firstHost := strings.ToLower(u.Hostname())
 	for hop := 0; ; hop++ {
 		if !allowed(u.Hostname()) {
 			return nil, u, redirected, &relayErr{403, "host", fmt.Sprintf("webapi: host %s is not allowed", strings.ToLower(u.Hostname()))}
@@ -433,6 +437,11 @@ func (s *Server) do(ctx context.Context, method string, u *url.URL, hdr http.Hea
 			if next.Host != u.Host {
 				hdr.Del("Authorization")
 				hdr.Del("Cookie")
+			}
+			if to := strings.ToLower(next.Hostname()); to != firstHost && !strings.HasSuffix(to, "."+firstHost) {
+				for _, k := range stay {
+					hdr.Del(k)
+				}
 			}
 			u, redirected = next, true
 			continue
@@ -677,12 +686,16 @@ func (s *Server) media(image bool) http.HandlerFunc {
 			jsonError(w, 400, "bad_request", "not a web address")
 			return
 		}
-		var hdr http.Header
-		if image {
-			hdr = http.Header{}
-		} else if hdr, err = decodeHeaderList(q.Get("h")); err != nil {
+		// h: the plugin's headers for this picture or stream (its stream
+		// answer's, and its requestHeaders), decided by the app.
+		hdr, err := decodeHeaderList(q.Get("h"))
+		if err != nil {
 			jsonError(w, 400, "bad_request", err.Error())
 			return
+		}
+		stay := make([]string, 0, len(hdr))
+		for k := range hdr {
+			stay = append(stay, k)
 		}
 		for _, k := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
 			if v := r.Header.Get(k); v != "" {
@@ -708,7 +721,7 @@ func (s *Server) media(image bool) http.HandlerFunc {
 			// addresses, so any public host is fine for /img.
 			rule = func(string) bool { return true }
 		}
-		res, final, _, err := s.do(r.Context(), r.Method, u, hdr, nil, true, rule)
+		res, final, _, err := s.do(r.Context(), r.Method, u, hdr, nil, true, rule, stay...)
 		if err != nil {
 			writeRelayErr(w, err)
 			return
