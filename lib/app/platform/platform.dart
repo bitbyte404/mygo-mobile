@@ -33,3 +33,9 @@ String? pageParam(String name) => impl.pageParam(name);
 
 /// Lets browser tests read the lyrics clock (window.__mygoPosition).
 void exposeClock(Duration Function() now) => impl.exposeClock(now);
+
+/// Web: paints the browser's own chrome (iOS status bar in the home-screen
+/// app, Safari's and Chrome's toolbars) in the app's page color, so it
+/// follows the theme chosen in Settings rather than the system's. No-op on
+/// phones, where AnnotatedRegion does this.
+void setPageChrome(Color background, {required bool dark}) => impl.setPageChrome(background, dark: dark);

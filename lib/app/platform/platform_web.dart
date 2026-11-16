@@ -114,3 +114,30 @@ String? pageParam(String name) => Uri.base.queryParameters[name];
 void exposeClock(Duration Function() now) {
   web.window.setProperty('__mygoPosition'.toJS, (() => now().inMilliseconds).toJS);
 }
+
+String? _chrome;
+
+void setPageChrome(Color background, {required bool dark}) {
+  final hex = '#${(background.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+  final key = '$hex$dark';
+  if (key == _chrome) return;
+  _chrome = key;
+  final doc = web.document;
+  // One theme-color with no media query: the app's, not the system's.
+  final metas = doc.querySelectorAll('meta[name="theme-color"]');
+  for (var i = metas.length - 1; i > 0; i--) {
+    (metas.item(i) as web.Element?)?.remove();
+  }
+  var meta = metas.length > 0 ? metas.item(0) as web.Element? : null;
+  if (meta == null) {
+    meta = doc.createElement('meta')..setAttribute('name', 'theme-color');
+    doc.head?.append(meta);
+  }
+  meta.removeAttribute('media');
+  meta.setAttribute('content', hex);
+  doc.querySelector('meta[name="color-scheme"]')?.setAttribute('content', dark ? 'dark' : 'light');
+  final root = doc.documentElement as web.HTMLElement?;
+  root?.style.setProperty('background', hex);
+  root?.style.setProperty('color-scheme', dark ? 'dark' : 'light');
+  doc.body?.style.setProperty('background', hex);
+}

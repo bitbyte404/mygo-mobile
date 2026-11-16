@@ -11,6 +11,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mygo_mobile/app/platform/platform.dart' show setPageChrome;
 import 'package:mygo_mobile/app/services.dart';
 import 'package:mygo_mobile/core/models/models.dart';
 import 'package:mygo_mobile/data/navigation.dart';
@@ -177,6 +178,7 @@ class _AppShellState extends State<AppShell> {
             ),
           ]);
         }
+        if (kIsWeb) setPageChrome(pal.bg, dark: pal.dark);
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: mgOverlay(!pal.dark),
           child: PopScope(

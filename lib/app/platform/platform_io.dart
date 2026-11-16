@@ -37,3 +37,5 @@ void debugExpose(String key, Object? value) {}
 String? pageParam(String name) => null;
 
 void exposeClock(Duration Function() now) {}
+
+void setPageChrome(Color background, {required bool dark}) {}
